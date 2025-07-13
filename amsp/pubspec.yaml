@@ -1,0 +1,30 @@
+name: amsp
+description: "A new Flutter project."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.7.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  firebase_core: ^2.32.0
+  firebase_auth: ^4.20.0
+  cloud_firestore: ^4.17.5
+  google_sign_in: ^6.3.0
+  mapbox_maps_flutter: ^2.9.1
+  flutter_dotenv: ^5.0.2
+  geolocator: ^12.0.0
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images1.jpg
+    - .env
