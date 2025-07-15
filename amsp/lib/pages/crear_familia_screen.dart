@@ -7,7 +7,7 @@ class CrearFamiliaScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Crear familia')),
-      body: const Center(child: Text('Pantalla para crear familia')),
+      body: const Center(child: Text('Familia')),
     );
   }
 }

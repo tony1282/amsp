@@ -40,8 +40,9 @@ factory UserModel.fromDocumentSnapshot(DocumentSnapshot doc) {
 }
 
 static TipoUsuario _rolFromString(String rol) {
+  final rolLower = rol.toLowerCase();
     return TipoUsuario.values.firstWhere(
-      (e) => e.name == rol,
+      (e) => e.name.toLowerCase() == rolLower,
       orElse: () => TipoUsuario.admin,
     );
   }

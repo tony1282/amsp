@@ -5,10 +5,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class UserScreenCon extends StatefulWidget {
   const UserScreenCon({super.key});
 
-  // Aquí las constantes estáticas de color
-  static const Color backgroundColor = Color(0xFF248448);
-  static const Color accentColor = Color.fromARGB(255, 0, 0, 0);
-
   @override
   State<UserScreenCon> createState() => _UserScreenConState();
 }
@@ -20,7 +16,6 @@ class _UserScreenConState extends State<UserScreenCon> {
   String? _correo;
   String? _nombre;
   String? _telefono;
-  String? _tipoUsuario;
   String? _fotoURL;
   bool _cargando = true;
 
@@ -42,20 +37,19 @@ class _UserScreenConState extends State<UserScreenCon> {
         _fotoURL = user.photoURL;
         _nombre = data?['name'] ?? 'No disponible';
         _telefono = data?['phone'] ?? 'No registrado';
-        _tipoUsuario = data?['tipo_usuario'] ?? 'No especificado';
         _cargando = false;
       });
     }
   }
 
-  Widget buildInfoBox(String label, String value) {
+  Widget buildInfoBox(String label, String value, ThemeData theme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
           style: const TextStyle(
-            color: Color.fromARGB(255, 255, 249, 249),
+            color: Colors.white,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -66,7 +60,7 @@ class _UserScreenConState extends State<UserScreenCon> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: const Color.fromARGB(255, 255, 123, 0), width: 1),
+            border: Border.all(color: theme.colorScheme.secondary, width: 1),
           ),
           child: Text(
             value,
@@ -80,16 +74,22 @@ class _UserScreenConState extends State<UserScreenCon> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final primaryColor = theme.primaryColor;
+    final secondaryColor = theme.colorScheme.secondary;
+    final contrastColor = theme.appBarTheme.foregroundColor ?? Colors.white;
+
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: UserScreenCon.backgroundColor,
+        backgroundColor: primaryColor,
         centerTitle: true,
-        title: const Text(
+        title: Text(
           "Datos del usuario",
-          style: TextStyle(
-            color: Color.fromARGB(255, 255, 255, 255),
-            fontWeight: FontWeight.bold,
-          ),
+          style: theme.appBarTheme.titleTextStyle ??
+              TextStyle(
+                color: contrastColor,
+                fontWeight: FontWeight.bold,
+              ),
         ),
       ),
       body: _cargando
@@ -105,24 +105,21 @@ class _UserScreenConState extends State<UserScreenCon> {
                             radius: 60,
                             backgroundImage: NetworkImage(_fotoURL!),
                           )
-                        : const CircleAvatar(
-                            radius: 60,
-                          ),
+                        : const CircleAvatar(radius: 60),
                   ),
                   Card(
                     elevation: 5,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(15),
                     ),
-                    color: UserScreenCon.backgroundColor,
+                    color: primaryColor,
                     child: Padding(
                       padding: const EdgeInsets.all(30.0),
                       child: Column(
                         children: [
-                          buildInfoBox("Correo", _correo ?? ''),
-                          buildInfoBox("Nombre", _nombre ?? ''),
-                          buildInfoBox("Teléfono", _telefono ?? ''),
-                          buildInfoBox("Tipo de usuario", _tipoUsuario ?? ''),
+                          buildInfoBox("Correo", _correo ?? '', theme),
+                          buildInfoBox("Nombre", _nombre ?? '', theme),
+                          buildInfoBox("Teléfono", _telefono ?? '', theme),
                         ],
                       ),
                     ),

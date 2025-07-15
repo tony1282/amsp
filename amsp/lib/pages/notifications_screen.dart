@@ -3,31 +3,31 @@ import 'package:flutter/material.dart';
 class NotificationScreen extends StatelessWidget {
   const NotificationScreen({super.key});
 
-  // Colores estáticos
-  static const Color orangeColor = Color.fromARGB(255, 0, 0, 0);
-  static const Color backgroundColor = Color(0xFF248448);
-  static const Color bottomBarColor = Color(0xFF248448);
-
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final primaryColor = theme.primaryColor;
+    final contrastColor = theme.appBarTheme.foregroundColor ?? Colors.white;
+
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: backgroundColor,
+        backgroundColor: primaryColor,
         centerTitle: true,
-        title: const Text(
+        title: Text(
           'AMSP',
-          style: TextStyle(
-            color: Color.fromARGB(255, 255, 255, 255),
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.5,
-          ),
+          style: theme.appBarTheme.titleTextStyle ??
+              TextStyle(
+                color: contrastColor,
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.5,
+              ),
         ),
       ),
       backgroundColor: Colors.white,
       body: const SizedBox.shrink(), // Pantalla en blanco
       bottomNavigationBar: BottomAppBar(
-        color: bottomBarColor,
+        color: primaryColor,
         child: const SizedBox(height: 50), // Altura del BottomAppBar vacía
       ),
     );

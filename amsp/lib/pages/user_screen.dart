@@ -11,8 +11,7 @@ class InicioSesion extends StatelessWidget {
       final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
       if (googleUser == null) return;
 
-      final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
 
       final AuthCredential credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
@@ -37,7 +36,9 @@ class InicioSesion extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const customGreen = Color(0xFF248448);
+    final theme = Theme.of(context);
+    final greenColor = theme.primaryColor;
+    final contrastColor = theme.appBarTheme.foregroundColor ?? Colors.white;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -51,9 +52,13 @@ class InicioSesion extends StatelessWidget {
                 backgroundImage: AssetImage('assets/images1.jpg'),
               ),
               const SizedBox(height: 10),
-              const Text(
+              Text(
                 'AMSP',
-                style: TextStyle(
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  color: Colors.black,
+                  fontWeight: FontWeight.bold,
+                ) ??
+                const TextStyle(
                   color: Colors.black,
                   fontSize: 40,
                   fontWeight: FontWeight.bold,
@@ -62,19 +67,19 @@ class InicioSesion extends StatelessWidget {
               const Spacer(),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: customGreen,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 30, vertical: 20),
+                  backgroundColor: greenColor,
+                  foregroundColor: contrastColor,
+                  padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 20),
                   textStyle: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
                   ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 onPressed: () => _signInWithGoogle(context),
-                child: const Text(
-                  'Iniciar sesión con Google',
-                  style: TextStyle(color: Colors.white),
-                ),
+                child: const Text('Iniciar sesión con Google'),
               ),
               const SizedBox(height: 249),
             ],

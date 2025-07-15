@@ -1,27 +1,33 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class FamilyScreen extends StatelessWidget {
   const FamilyScreen({super.key});
 
-  static const Color orangeColor = Color.fromARGB(255, 255, 108, 0);
-  static const Color backgroundColor = Color(0xFF248448);
-
-  final String? _fotoURL = null;
-
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final greenColor = theme.primaryColor; // Verde principal
+    final orangeColor = theme.colorScheme.secondary; // Naranja
+    final contrastColor = theme.appBarTheme.foregroundColor ?? Colors.white;
+
+    final user = FirebaseAuth.instance.currentUser;
+    final String? _fotoURL = user?.photoURL;
+
+
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: backgroundColor,
+        backgroundColor: greenColor,
         centerTitle: true,
-        title: const Text(
+        title: Text(
           'AMSP',
-          style: TextStyle(
-            color: Colors.black,
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.5,
-          ),
+          style: theme.appBarTheme.titleTextStyle?.copyWith(color: contrastColor) ??
+              TextStyle(
+                color: contrastColor,
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.5,
+              ),
         ),
       ),
       backgroundColor: Colors.white,
@@ -34,7 +40,7 @@ class FamilyScreen extends StatelessWidget {
               child: _fotoURL != null
                   ? CircleAvatar(
                       radius: 60,
-                      backgroundImage: NetworkImage(_fotoURL!),
+                      backgroundImage: NetworkImage(_fotoURL),
                     )
                   : const CircleAvatar(radius: 60),
             ),
@@ -43,15 +49,16 @@ class FamilyScreen extends StatelessWidget {
                 // Acción para agregar familiar
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: backgroundColor,
-                padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 15),
+                backgroundColor: greenColor,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 25, vertical: 15),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              child: const Text(
+              child: Text(
                 'Agregar familiar',
-                style: TextStyle(color: Colors.white, fontSize: 16),
+                style: TextStyle(color: contrastColor, fontSize: 16),
               ),
             ),
             const SizedBox(height: 30),
@@ -62,27 +69,31 @@ class FamilyScreen extends StatelessWidget {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(15),
               ),
-              color: backgroundColor,
+              color: greenColor,
               child: Padding(
                 padding: const EdgeInsets.all(25),
                 child: Column(
                   children: [
-                    const Text(
+                    Text(
                       "Familia",
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: theme.textTheme.titleLarge?.copyWith(
+                            color: contrastColor,
+                            fontWeight: FontWeight.bold,
+                          ) ??
+                          TextStyle(
+                            color: contrastColor,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
                     ),
                     const SizedBox(height: 25),
 
                     // Lista de familiares con dos tarjetas cada uno
-                    _buildFamilyDoubleCard("Usuario 1", "Protegido"),
+                    _buildFamilyDoubleCard("Usuario 1", "Protegido", orangeColor),
                     const SizedBox(height: 20),
-                    _buildFamilyDoubleCard("Usuario 2", "Guardián"),
+                    _buildFamilyDoubleCard("Usuario 2", "Guardián", orangeColor),
                     const SizedBox(height: 20),
-                    _buildFamilyDoubleCard("Usuario 3", "Protegido"),
+                    _buildFamilyDoubleCard("Usuario 3", "Protegido", orangeColor),
                   ],
                 ),
               ),
@@ -93,7 +104,7 @@ class FamilyScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildFamilyDoubleCard(String name, String role) {
+  Widget _buildFamilyDoubleCard(String name, String role, Color orangeColor) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -114,13 +125,13 @@ class FamilyScreen extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
         ),
-        const SizedBox(height: 4), // menos espacio aquí
+        const SizedBox(height: 4),
 
         // Tarjeta del rol + iconos, más corta y alineada a la izquierda
         Align(
           alignment: Alignment.centerLeft,
           child: Container(
-            width: 200, // ancho fijo más corto que el nombre
+            width: 200,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
               color: Colors.white,

@@ -41,7 +41,9 @@ class _PhoneNumberScreenState extends State<PhoneNumberScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const greenColor = Color(0xFF248448);
+    final theme = Theme.of(context);
+    final greenColor = theme.primaryColor;
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: Center(
@@ -68,7 +70,7 @@ class _PhoneNumberScreenState extends State<PhoneNumberScreen> {
                     ),
                   ],
                 ),
-              ), 
+              ),
               const Text(
                 "Ingresa tu número de teléfono",
                 style: TextStyle(
@@ -81,18 +83,18 @@ class _PhoneNumberScreenState extends State<PhoneNumberScreen> {
               TextField(
                 controller: _controller,
                 keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Número de teléfono',
-                  border: OutlineInputBorder(
+                  border: const OutlineInputBorder(
                     borderRadius: BorderRadius.all(Radius.circular(7)),
                   ),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(10)),
-                    borderSide: BorderSide(color: Color(0xFF248448), width: 2),
+                    borderRadius: const BorderRadius.all(Radius.circular(10)),
+                    borderSide: BorderSide(color: greenColor, width: 2),
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(10)),
-                    borderSide: BorderSide(color: Color(0xFF248448), width: 2),
+                    borderRadius: const BorderRadius.all(Radius.circular(10)),
+                    borderSide: BorderSide(color: greenColor, width: 2),
                   ),
                 ),
               ),
@@ -109,7 +111,7 @@ class _PhoneNumberScreenState extends State<PhoneNumberScreen> {
                     fontWeight: FontWeight.bold,
                   ),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12), // Botón también redondeado
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
                 onPressed: _savePhoneNumber,

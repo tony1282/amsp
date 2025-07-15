@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart' as gl;
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'conf_screen.dart';
 import 'family_screen.dart';
 import 'notifications_screen.dart';
@@ -8,7 +11,8 @@ import 'user_screen_con.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'crear_familia_screen.dart';
 import 'unirse_familia_screen.dart';
-import 'agregar_dispositivo_screen.dart';  // Importa tu pantalla aquí
+import 'agregar_dispositivo_screen.dart';
+import 'package:amsp/models/user_model.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -18,16 +22,17 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  static const greenColor = Color(0xFF248448);
-  static const contrastColor = Color.fromARGB(255, 255, 255, 255);
-
   mp.MapboxMap? mapboxMapController;
   StreamSubscription? userPositionStream;
+
+  bool esCreadorFamilia = false;
+  bool cargandoUsuario = true;
 
   @override
   void initState() {
     super.initState();
     _setupPositionTraking();
+    cargarDatosUsuario();
   }
 
   @override
@@ -36,32 +41,69 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
+  Future<void> cargarDatosUsuario() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      setState(() {
+        esCreadorFamilia = false;
+        cargandoUsuario = false;
+      });
+      return;
+    }
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser.uid)
+          .get();
+
+      if (doc.exists) {
+        final userModel = UserModel.fromDocumentSnapshot(doc);
+        setState(() {
+          esCreadorFamilia = userModel.tipoUsuario == TipoUsuario.admin;
+          cargandoUsuario = false;
+        });
+      } else {
+        setState(() {
+          esCreadorFamilia = false;
+          cargandoUsuario = false;
+        });
+      }
+    } catch (e) {
+      print('Error cargando usuario: $e');
+      setState(() {
+        esCreadorFamilia = false;
+        cargandoUsuario = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final greenColor = theme.primaryColor;
+    final contrastColor = theme.appBarTheme.foregroundColor ?? Colors.white;
+    final orangeColor = theme.colorScheme.secondary;
+
+    if (cargandoUsuario) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: greenColor,
         centerTitle: true,
-        title: const Text(
-          'AMSP',
-          style: TextStyle(
-            color: contrastColor,
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.5,
-          ),
-        ),
+        title: const Text('AMSP'),
         leading: _iconButton(Icons.settings, () {
           Navigator.push(context, MaterialPageRoute(builder: (_) => const ConfScreen()));
-        }),
+        }, contrastColor),
         actions: [
           _iconButton(Icons.notifications, () {
             Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationScreen()));
-          }),
+          }, contrastColor),
         ],
       ),
-
-      backgroundColor: Colors.white,
       body: Stack(
         children: [
           mp.MapWidget(
@@ -74,16 +116,14 @@ class _HomePageState extends State<HomePage> {
             child: ElevatedButton.icon(
               icon: const Icon(Icons.family_restroom, size: 20),
               label: const Text("Familia"),
+              onPressed: _mostrarOpcionesFamilia, 
               style: ElevatedButton.styleFrom(
                 backgroundColor: greenColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                foregroundColor: contrastColor,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                 textStyle: const TextStyle(fontSize: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(6),
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               ),
-              onPressed: _mostrarOpcionesFamilia,
             ),
           ),
           Positioned(
@@ -92,23 +132,20 @@ class _HomePageState extends State<HomePage> {
             child: ElevatedButton.icon(
               icon: const Icon(Icons.watch, size: 20),
               label: const Text("Dispositivo"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: greenColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                textStyle: const TextStyle(fontSize: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(6),
-                ),
-              ),
               onPressed: () {
                 Navigator.push(context, MaterialPageRoute(builder: (_) => const AgregarDispositivoScreen()));
               },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: greenColor,
+                foregroundColor: contrastColor,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                textStyle: const TextStyle(fontSize: 14),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              ),
             ),
           ),
         ],
       ),
-
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       floatingActionButton: Padding(
         padding: const EdgeInsets.only(bottom: 20, right: 20),
@@ -116,18 +153,14 @@ class _HomePageState extends State<HomePage> {
           width: 90,
           height: 90,
           child: FloatingActionButton(
-            backgroundColor: const Color.fromARGB(255, 255, 17, 0),
+            backgroundColor: Colors.red,
             onPressed: () => _showSosModal(context),
             shape: const CircleBorder(
               side: BorderSide(color: Colors.black, width: 3),
             ),
             child: const Text(
               'SOS',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 22,
-              ),
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 22),
             ),
           ),
         ),
@@ -139,14 +172,18 @@ class _HomePageState extends State<HomePage> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _bottomIcon(Icons.location_on, () => print('Ubicación presionado')),
+              _bottomIcon(Icons.location_on, () {}, contrastColor),
               _bottomIcon(Icons.family_restroom, () {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const FamilyScreen()));
-              }),
+                if (esCreadorFamilia) {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const FamilyScreen()));
+                } else {
+                  _mostrarOpcionesFamilia();
+                }
+              }, contrastColor),
               _bottomIcon(Icons.person, () {
                 Navigator.push(context, MaterialPageRoute(builder: (_) => const UserScreenCon()));
-              }),
-              _bottomIcon(Icons.phone, () => _modalTelefono(context)),
+              }, contrastColor),
+              _bottomIcon(Icons.phone, () => _modalTelefono(context), contrastColor),
             ],
           ),
         ),
@@ -164,46 +201,36 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _setupPositionTraking() async {
-    bool serviceEnebled;
-    gl.LocationPermission permission;
-    serviceEnebled = await gl.Geolocator.isLocationServiceEnabled();
-    if (!serviceEnebled) return Future.error('servicios de localizacion desactivados');
+    bool serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return;
 
-    permission = await gl.Geolocator.checkPermission();
+    gl.LocationPermission permission = await gl.Geolocator.checkPermission();
     if (permission == gl.LocationPermission.denied) {
       permission = await gl.Geolocator.requestPermission();
-      if (permission == gl.LocationPermission.denied) {
-        return Future.error('servicios de localizacion denegados');
+      if (permission == gl.LocationPermission.denied) return;
+    }
+    if (permission == gl.LocationPermission.deniedForever) return;
+
+    userPositionStream = gl.Geolocator.getPositionStream(
+      locationSettings: const gl.LocationSettings(accuracy: gl.LocationAccuracy.high, distanceFilter: 100),
+    ).listen((gl.Position? position) {
+      if (position != null) {
+        mapboxMapController?.setCamera(
+          mp.CameraOptions(
+            zoom: 10,
+            center: mp.Point(coordinates: mp.Position(position.longitude, position.latitude)),
+          ),
+        );
       }
-    }
-
-    if (permission == gl.LocationPermission.deniedForever) {
-      return Future.error('servicios de localizacion denegados para siempre');
-    }
-
-    gl.LocationSettings locationSettings = gl.LocationSettings(
-      accuracy: gl.LocationAccuracy.high,
-      distanceFilter: 100,
-    );
-
-    userPositionStream?.cancel();
-    userPositionStream = gl.Geolocator.getPositionStream(locationSettings: locationSettings).listen(
-      (gl.Position? position) {
-        if (position != null) {
-          mapboxMapController?.setCamera(
-            mp.CameraOptions(
-              zoom: 10,
-              center: mp.Point(
-                coordinates: mp.Position(position.longitude, position.latitude),
-              ),
-            ),
-          );
-        }
-      },
-    );
+    });
   }
 
   void _mostrarOpcionesFamilia() {
+    final theme = Theme.of(context);
+    final greenColor = theme.primaryColor;
+    final contrastColor = theme.appBarTheme.foregroundColor ?? Colors.white;
+    final orangeColor = theme.colorScheme.secondary;
+
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -216,24 +243,24 @@ class _HomePageState extends State<HomePage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.family_restroom, size: 50, color: Colors.white),
+              Icon(Icons.family_restroom, size: 50, color: contrastColor),
               const SizedBox(height: 16),
-              const Text(
+              Text(
                 "Opciones de Familia",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                style: theme.textTheme.titleLarge?.copyWith(color: contrastColor, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 24),
               ElevatedButton.icon(
                 icon: const Icon(Icons.group_add),
-                label: const Text("Crear familia"),
+                label: const Text("Crear familia", style: TextStyle(color: Colors.black)),
                 onPressed: () {
                   Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const CrearFamiliaScreen()));
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const FamilyScreen()));
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
-                  foregroundColor: greenColor,
-                  side: const BorderSide(color: Colors.black, width: 1.5),
+                  foregroundColor: orangeColor,
+                  side: BorderSide(color: orangeColor, width: 1.5),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                   minimumSize: const Size.fromHeight(50),
                 ),
@@ -241,15 +268,15 @@ class _HomePageState extends State<HomePage> {
               const SizedBox(height: 16),
               ElevatedButton.icon(
                 icon: const Icon(Icons.login),
-                label: const Text("Unirse a una familia"),
+                label: const Text("Unirse a una familia", style: TextStyle(color: Colors.black)),
                 onPressed: () {
                   Navigator.pop(context);
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const UnirseAFamiliaScreen()));
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
-                  foregroundColor: greenColor,
-                  side: const BorderSide(color: Colors.black, width: 1.5),
+                  foregroundColor: orangeColor,
+                  side: BorderSide(color: orangeColor, width: 1.5),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                   minimumSize: const Size.fromHeight(50),
                 ),
@@ -261,19 +288,23 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  static Widget _iconButton(IconData icon, VoidCallback onPressed) {
+  static Widget _iconButton(IconData icon, VoidCallback onPressed, Color color) {
     return IconButton(
-      icon: Icon(icon, color: contrastColor),
+      icon: Icon(icon, color: color),
       iconSize: 35,
       onPressed: onPressed,
     );
   }
 
-  static Widget _bottomIcon(IconData icon, VoidCallback onPressed) {
-    return _iconButton(icon, onPressed);
+  static Widget _bottomIcon(IconData icon, VoidCallback onPressed, Color color) {
+    return _iconButton(icon, onPressed, color);
   }
 
   void _modalTelefono(BuildContext context) {
+    final theme = Theme.of(context);
+    final greenColor = theme.primaryColor;
+    final contrastColor = theme.appBarTheme.foregroundColor ?? Colors.white;
+
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -286,14 +317,10 @@ class _HomePageState extends State<HomePage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.phone, color: contrastColor, size: 35),
-              const Text(
+              Icon(Icons.phone, size: 35, color: contrastColor),
+              Text(
                 'Contactos de Emergencia',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
+                style: theme.textTheme.titleLarge?.copyWith(color: contrastColor, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 20),
               _contactTile('2471351234'),
@@ -315,8 +342,8 @@ class _HomePageState extends State<HomePage> {
       ),
       child: ListTile(
         leading: const Icon(Icons.phone, color: Color(0xFFF47405)),
-        title: const Text('Contacto', style: TextStyle(color: Colors.black)),
-        subtitle: Text(number, style: const TextStyle(color: Colors.black)),
+        title: const Text('Contacto'),
+        subtitle: Text(number),
         onTap: () => Navigator.pop(context),
       ),
     );
@@ -327,7 +354,7 @@ class _HomePageState extends State<HomePage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          backgroundColor: const Color.fromARGB(255, 220, 7, 7),
+          backgroundColor: Colors.red.shade700,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: const Text(
             '¡EMERGENCIA SOS!',
@@ -342,10 +369,7 @@ class _HomePageState extends State<HomePage> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text(
-                'Cerrar',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-              ),
+              child: const Text('Cerrar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             )
           ],
         );
