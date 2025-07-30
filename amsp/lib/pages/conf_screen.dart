@@ -67,7 +67,6 @@ class ConfScreen extends StatelessWidget {
                   backgroundColor: orangeColor,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
-                    side: const BorderSide(color: Colors.black, width: 2), // ← borde negro
                   ),
                 ),
                 child: const Text(
@@ -96,7 +95,6 @@ class ConfScreen extends StatelessWidget {
             padding: const EdgeInsets.symmetric(vertical: 12),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
-              side: const BorderSide(color: Colors.black, width: 2), // ← borde negro
             ),
           ),
           child: Text(

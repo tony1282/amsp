@@ -29,7 +29,7 @@ class _PhoneNumberScreenState extends State<PhoneNumberScreen> {
       if (context.mounted) {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const HomePage()),
+          MaterialPageRoute(builder: (context) => const HomePage(circleId: '',)),
         );
       }
     } else {
@@ -74,7 +74,7 @@ class _PhoneNumberScreenState extends State<PhoneNumberScreen> {
               const Text(
                 "Ingresa tu número de teléfono",
                 style: TextStyle(
-                  fontSize: 22,
+                  fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
                 textAlign: TextAlign.center,

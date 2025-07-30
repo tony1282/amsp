@@ -1,166 +1,120 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-class FamilyScreen extends StatelessWidget {
+class FamilyScreen extends StatefulWidget {
   const FamilyScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final greenColor = theme.primaryColor; // Verde principal
-    final orangeColor = theme.colorScheme.secondary; // Naranja
-    final contrastColor = theme.appBarTheme.foregroundColor ?? Colors.white;
+  State<FamilyScreen> createState() => _FamilyScreenState();
+}
 
-    final user = FirebaseAuth.instance.currentUser;
-    final String? _fotoURL = user?.photoURL;
+class _FamilyScreenState extends State<FamilyScreen> {
+  final _firestore = FirebaseFirestore.instance;
+  final _auth = FirebaseAuth.instance;
 
+  late final String uid;
 
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: greenColor,
-        centerTitle: true,
-        title: Text(
-          'AMSP',
-          style: theme.appBarTheme.titleTextStyle?.copyWith(color: contrastColor) ??
-              TextStyle(
-                color: contrastColor,
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.5,
-              ),
-        ),
-      ),
-      backgroundColor: Colors.white,
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 30),
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(bottom: 30),
-              child: _fotoURL != null
-                  ? CircleAvatar(
-                      radius: 60,
-                      backgroundImage: NetworkImage(_fotoURL),
-                    )
-                  : const CircleAvatar(radius: 60),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                // Acción para agregar familiar
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: greenColor,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 25, vertical: 15),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              child: Text(
-                'Agregar familiar',
-                style: TextStyle(color: contrastColor, fontSize: 16),
-              ),
-            ),
-            const SizedBox(height: 30),
-
-            // Tarjeta verde
-            Card(
-              elevation: 5,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(15),
-              ),
-              color: greenColor,
-              child: Padding(
-                padding: const EdgeInsets.all(25),
-                child: Column(
-                  children: [
-                    Text(
-                      "Familia",
-                      style: theme.textTheme.titleLarge?.copyWith(
-                            color: contrastColor,
-                            fontWeight: FontWeight.bold,
-                          ) ??
-                          TextStyle(
-                            color: contrastColor,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                    ),
-                    const SizedBox(height: 25),
-
-                    // Lista de familiares con dos tarjetas cada uno
-                    _buildFamilyDoubleCard("Usuario 1", "Protegido", orangeColor),
-                    const SizedBox(height: 20),
-                    _buildFamilyDoubleCard("Usuario 2", "Guardián", orangeColor),
-                    const SizedBox(height: 20),
-                    _buildFamilyDoubleCard("Usuario 3", "Protegido", orangeColor),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  @override
+  void initState() {
+    super.initState();
+    uid = _auth.currentUser!.uid;
   }
 
-  Widget _buildFamilyDoubleCard(String name, String role, Color orangeColor) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // Tarjeta del nombre
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(color: orangeColor, width: 2),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            name,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ),
-        const SizedBox(height: 4),
+  Future<List<QueryDocumentSnapshot>> _getCirculosCreados() async {
+    final snapshot = await _firestore
+        .collection('circulos')
+        .where('creador', isEqualTo: uid)
+        .get();
+    return snapshot.docs;
+  }
 
-        // Tarjeta del rol + iconos, más corta y alineada a la izquierda
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Container(
-            width: 200,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              border: Border.all(color: orangeColor, width: 2),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
+  Future<List<QueryDocumentSnapshot>> _getCirculosUnido() async {
+    final todosLosCirculos = await _firestore.collection('circulos').get();
+
+    List<QueryDocumentSnapshot> unidos = [];
+
+    for (var circulo in todosLosCirculos.docs) {
+      final data = circulo.data() as Map<String, dynamic>;
+      final miembros = data['miembros'] as List<dynamic>? ?? [];
+
+      final estaEnCirculo = miembros.any((miembro) {
+        return miembro['uid'] == uid;
+
+      });
+
+      if (estaEnCirculo) {
+        unidos.add(circulo);
+      }
+      }
+
+    return unidos;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Mi familia'),
+        centerTitle: true,
+      ),
+      body: FutureBuilder<List<List<QueryDocumentSnapshot>>>(
+        future: Future.wait([
+          _getCirculosCreados(),
+          _getCirculosUnido(),
+        ]),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          }
+
+          final creados = snapshot.data![0];
+          final unidos = snapshot.data![1];
+
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Text(
-                    role,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+                Text(
+                  'Círculos que creaste:',
+                  style: Theme.of(context).textTheme.headlineSmall,
                 ),
-                Row(
-                  children: const [
-                    Icon(Icons.edit, color: Colors.black),
-                    SizedBox(width: 15),
-                    Icon(Icons.delete, color: Colors.black),
-                  ],
-                )
+                const SizedBox(height: 10),
+                if (creados.isEmpty)
+                  const Text('No has creado ningún círculo.'),
+                ...creados.map((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  return ListTile(
+                    title: Text(data['nombre'] ?? 'Sin nombre'),
+                    subtitle: Text(data['tipo'] ?? ''),
+                    leading: const Icon(Icons.family_restroom),
+                  );
+                }),
+                const Divider(),
+                Text(
+                  'Círculos donde eres miembro:',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 10),
+                if (unidos.isEmpty)
+                  const Text('No perteneces a ningún círculo.'),
+                ...unidos.map((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  return ListTile(
+                    title: Text(data['nombre'] ?? 'Sin nombre'),
+                    subtitle: Text(data['tipo'] ?? ''),
+                    leading: const Icon(Icons.group),
+                  );
+                }),
               ],
             ),
-          ),
-        ),
-      ],
+          );
+        },
+      ),
     );
   }
 }

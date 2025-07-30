@@ -1,7 +1,8 @@
-import 'package:amsp/pages/number_screen.dart';
+import 'package:amsp/pages/phone_number_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:amsp/pages/login_email_screen.dart';
 
 class InicioSesion extends StatelessWidget {
   const InicioSesion({super.key});
@@ -55,16 +56,18 @@ class InicioSesion extends StatelessWidget {
               Text(
                 'AMSP',
                 style: theme.textTheme.headlineSmall?.copyWith(
-                  color: Colors.black,
-                  fontWeight: FontWeight.bold,
-                ) ??
-                const TextStyle(
-                  color: Colors.black,
-                  fontSize: 40,
-                  fontWeight: FontWeight.bold,
-                ),
+                      color: Colors.black,
+                      fontWeight: FontWeight.bold,
+                    ) ??
+                    const TextStyle(
+                      color: Colors.black,
+                      fontSize: 40,
+                      fontWeight: FontWeight.bold,
+                    ),
               ),
               const Spacer(),
+
+              // Botón Google
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: greenColor,
@@ -81,6 +84,32 @@ class InicioSesion extends StatelessWidget {
                 onPressed: () => _signInWithGoogle(context),
                 child: const Text('Iniciar sesión con Google'),
               ),
+
+              const SizedBox(height: 12),
+
+              // Botón Email
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.grey[200],
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 20),
+                  textStyle: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const LoginEmailScreen()),
+                  );
+                },
+                child: const Text('Iniciar sesión con correo electrónico'),
+              ),
+
               const SizedBox(height: 249),
             ],
           ),
