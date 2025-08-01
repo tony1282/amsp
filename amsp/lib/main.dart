@@ -1,7 +1,7 @@
 import 'package:amsp/pages/home_page.dart';
 import 'package:amsp/pages/inicio_sesion_screen.dart';
 import 'package:amsp/pages/phone_number_screen.dart';
-import 'package:amsp/pages/inicio_sesion_screen.dart';
+import 'package:amsp/pages/zona_riesgo_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -11,8 +11,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 import 'package:amsp/services/location_service.dart';
-
-
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -86,7 +84,24 @@ class MainApp extends StatelessWidget {
           bodyMedium: TextStyle(color: Colors.black),
         ),
       ),
-      home: const InicioSesion(),
+      home: const AuthWrapper(),
     );
+  }
+}
+
+class AuthWrapper extends StatelessWidget {
+  const AuthWrapper({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      // No está autenticado, mostrar pantalla de inicio de sesión
+      return  InicioSesion();
+    } else {
+      // Ya está autenticado, navegar a HomePage
+      return const HomePage(circleId: null);
+    }
   }
 }

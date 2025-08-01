@@ -1,3 +1,4 @@
+import 'package:amsp/pages/inicio_sesion_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -42,32 +43,111 @@ class _UserScreenConState extends State<UserScreenCon> {
     }
   }
 
-  Widget buildInfoBox(String label, String value, ThemeData theme) {
-    return Column(
+  Future<void> _cerrarSesion() async {
+    await _auth.signOut();
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const InicioSesion()),
+    );
+  }
+
+  Future<void> _editarCampo({required String campo}) async {
+    String valorActual = campo == 'name' ? (_nombre ?? '') : (_telefono ?? '');
+    final controller = TextEditingController(text: valorActual);
+
+    final resultado = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Editar ${campo == 'name' ? 'Nombre' : 'Teléfono'}'),
+          content: TextField(
+            controller: controller,
+            keyboardType: campo == 'phone' ? TextInputType.phone : TextInputType.text,
+            decoration: InputDecoration(
+              labelText: campo == 'name' ? 'Nombre' : 'Teléfono',
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context), // cancelar
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (controller.text.trim().isEmpty) return;
+                Navigator.pop(context, controller.text.trim());
+              },
+              child: const Text('Guardar'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (resultado != null) {
+      final user = _auth.currentUser;
+      if (user != null) {
+        await _firestore.collection('users').doc(user.uid).set(
+          {campo: resultado},
+          SetOptions(merge: true),
+        );
+
+        setState(() {
+          if (campo == 'name') {
+            _nombre = resultado;
+          } else if (campo == 'phone') {
+            _telefono = resultado;
+          }
+        });
+      }
+    }
+  }
+
+  Widget buildInfoBox(String label, String value, ThemeData theme,
+      {VoidCallback? onEdit}) {
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border:
+                      Border.all(color: theme.colorScheme.secondary, width: 1),
+                ),
+                child: Text(
+                  value,
+                  style: const TextStyle(color: Colors.black),
+                ),
+              ),
+              const SizedBox(height: 15),
+            ],
           ),
         ),
-        const SizedBox(height: 5),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: theme.colorScheme.secondary, width: 1),
+        if (onEdit != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 8, top: 18),
+            child: IconButton(
+              icon: const Icon(Icons.edit, color: Colors.white),
+              onPressed: onEdit,
+            ),
           ),
-          child: Text(
-            value,
-            style: const TextStyle(color: Colors.black),
-          ),
-        ),
-        const SizedBox(height: 15),
       ],
     );
   }
@@ -117,9 +197,38 @@ class _UserScreenConState extends State<UserScreenCon> {
                       padding: const EdgeInsets.all(30.0),
                       child: Column(
                         children: [
-                          buildInfoBox("Correo", _correo ?? '', theme),
-                          buildInfoBox("Nombre", _nombre ?? '', theme),
-                          buildInfoBox("Teléfono", _telefono ?? '', theme),
+                          buildInfoBox(
+                            "Correo",
+                            _correo ?? '',
+                            theme,
+                          ),
+                          buildInfoBox(
+                            "Nombre",
+                            _nombre ?? '',
+                            theme,
+                            onEdit: () => _editarCampo(campo: 'name'),
+                          ),
+                          buildInfoBox(
+                            "Teléfono",
+                            _telefono ?? '',
+                            theme,
+                            onEdit: () => _editarCampo(campo: 'phone'),
+                          ),
+                          const SizedBox(height: 20),
+                          ElevatedButton.icon(
+                            onPressed: _cerrarSesion,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: secondaryColor,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 20, vertical: 12),
+                            ),
+                            icon: const Icon(Icons.logout),
+                            label: const Text("Cerrar sesión"),
+                          ),
                         ],
                       ),
                     ),

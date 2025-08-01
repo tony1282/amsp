@@ -53,36 +53,27 @@ class LocationService {
 _positionSubscription = Geolocator.getPositionStream(
   locationSettings: locationSettings,
 ).listen((Position position) async {
-  print('Nueva ubicación: lat=${position.latitude}, lng=${position.longitude}');
+  final lat = position.latitude;
+  final lng = position.longitude;
+
+  print('📍 Nueva ubicación recibida: lat=$lat, lng=$lng');
 
   final locationData = {
-    'lat': position.latitude,
-    'lng': position.longitude,
+    'lat': lat,
+    'lng': lng,
     'timestamp': FieldValue.serverTimestamp(),
   };
 
-  // Guardar en 'ubicaciones'
   await FirebaseFirestore.instance.collection('ubicaciones').doc(user.uid).set(
     locationData,
     SetOptions(merge: true),
   );
 
-  // Guardar también en 'users'
-  try {
-    await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
-      'ubicacion': locationData,
-    });
-  } catch (e) {
-    // Si falla (por ejemplo, documento no existe), lo crea con merge
-    await FirebaseFirestore.instance.collection('users').doc(user.uid).set(
-      {'ubicacion': locationData},
-      SetOptions(merge: true),
-    );
-  }
+  print('✅ Ubicación guardada en Firestore para UID: ${user.uid}');
 });
   }
 
   static Future<void> stopLocationUpdates() async {
     await _positionSubscription?.cancel();
   }
-}
+} 

@@ -16,7 +16,6 @@ class MostrarCodigoScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final primary = theme.primaryColor;
-    final secondary = theme.colorScheme.secondary;
 
     return Scaffold(
       appBar: AppBar(
@@ -30,24 +29,27 @@ class MostrarCodigoScreen extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: secondary.withOpacity(0.1),
+              color: primary,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: secondary, width: 2),
+              border: Border.all(color: primary, width: 2),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.groups, size: 48),
+                const Icon(Icons.groups, size: 48, color: Colors.white),
                 const SizedBox(height: 20),
 
                 /// Nombre del círculo
                 Text(
                   'Nombre del círculo:',
-                  style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.bold),
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
                 Text(
                   nombre,
-                  style: theme.textTheme.headlineSmall?.copyWith(color: primary),
+                  style: theme.textTheme.headlineSmall?.copyWith(color: Colors.white),
                 ),
 
                 const SizedBox(height: 20),
@@ -55,11 +57,14 @@ class MostrarCodigoScreen extends StatelessWidget {
                 /// Tipo de círculo
                 Text(
                   'Tipo de círculo:',
-                  style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.bold),
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
                 Text(
                   tipo.toUpperCase(),
-                  style: theme.textTheme.titleLarge?.copyWith(color: Colors.black87),
+                  style: theme.textTheme.titleLarge?.copyWith(color: Colors.white),
                 ),
 
                 const SizedBox(height: 30),
@@ -67,12 +72,15 @@ class MostrarCodigoScreen extends StatelessWidget {
                 /// Código
                 Text(
                   'Código para unirse:',
-                  style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.bold),
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
                 SelectableText(
                   codigo,
                   style: theme.textTheme.headlineMedium?.copyWith(
-                    color: Colors.black87,
+                    color: Colors.white,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 2,
                   ),
@@ -83,6 +91,7 @@ class MostrarCodigoScreen extends StatelessWidget {
                 const Text(
                   'Comparte este código con las personas que quieras agregar al círculo.',
                   textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white),
                 ),
               ],
             ),

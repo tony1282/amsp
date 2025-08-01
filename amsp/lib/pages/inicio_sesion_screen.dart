@@ -87,11 +87,11 @@ class InicioSesion extends StatelessWidget {
 
               const SizedBox(height: 12),
 
-              // Botón Email
+              // Botón Email con mismo estilo que Google
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.grey[200],
-                  foregroundColor: Colors.black,
+                  backgroundColor: greenColor,
+                  foregroundColor: contrastColor,
                   padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 20),
                   textStyle: const TextStyle(
                     fontSize: 18,

@@ -1,11 +1,19 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:amsp/pages/crear_circulo_screen.dart';
+import 'package:amsp/pages/zona_riesgo_screen.dart';
+import 'package:amsp/services/inegi_service.dart';
+import 'package:amsp/services/location_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart' as gl;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:async/async.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:sensors_plus/sensors_plus.dart';
+import 'dart:math';
 
 
 import 'conf_screen.dart';
@@ -25,14 +33,31 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
+class MiClase {
+  late double valor;
+  late double raiz;
+
+  MiClase() {
+    valor = 9.0;
+    raiz = sqrt(valor); // raiz cuadrada para detectar cambios bruscos
+  }
+}
+
 class _HomePageState extends State<HomePage> {
   mp.MapboxMap? mapboxMapController;
   StreamSubscription? userPositionStream;
+
   mp.PointAnnotationManager? pointAnnotationManager;
   mp.CircleAnnotationManager? circleAnnotationManager;
 
   bool esCreadorFamilia = false;
   bool cargandoUsuario = true;
+  bool _mostrarNotificacion = true;
+  StreamSubscription? _alertasSubscription;
+
+Map<String, dynamic>? _geojsonZonasRiesgo;
+bool _cargandoZonas = false;
+
 
   String? circuloSeleccionadoId;
   String? circuloSeleccionadoNombre;
@@ -42,103 +67,49 @@ class _HomePageState extends State<HomePage> {
 
 
 
-  
+  bool _modalVisible = false;
 
-
-  Stream<QuerySnapshot> _alertasStream() {
-  final uid = FirebaseAuth.instance.currentUser?.uid;
-  if (uid == null) return const Stream.empty();
-
-  final ref = FirebaseFirestore.instance.collection('circulos');
-  return ref.snapshots().asyncExpand((snapshot) {
-    final userCircles = snapshot.docs.where((doc) {
-      final miembros = doc.data()['miembros'] as List<dynamic>? ?? [];
-      return miembros.any((m) => m['uid'] == uid);
-    });
-
-    final streams = userCircles.map((doc) {
-      return ref
-          .doc(doc.id)
-          .collection('alertas')
-          // Solo alertas recientes, opcional:
-          .where('timestamp', isGreaterThan: DateTime.now().subtract(const Duration(minutes: 10)))
-          .snapshots();
-    });
-
-    return StreamGroup.merge(streams);
-  });
-}
+  Timestamp? _ultimoTimestampVisto;
 
   bool _mostrarModalAlerta = false;
   String? _mensajeAlerta;
+ final Set<String> _alertasMostradasIds = {};
+   final Set<String> _alertasMostradas = {}; // ✅ Definida correctamente
+
+StreamSubscription? _accelerometerSubscription;
+DateTime _ultimaSacudida = DateTime.now().subtract(const Duration(seconds: 10));
+
 
 
 @override
 void initState() {
   super.initState();
+  _escucharAlertasEnTiempoReal();
+
+
+  LocationService.startLocationUpdates();
   cargarDatosUsuario();
-  _setupPositionTraking();
 
-  _alertasStream().listen((snapshot) async {
-    if (!mounted) return;
+ _accelerometerSubscription = accelerometerEvents.listen((event) {
+    // Calculamos la magnitud de la aceleración con sqrt()
+    final double aceleracion = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
 
-    final uidActual = FirebaseAuth.instance.currentUser?.uid;
-    if (uidActual == null) return;
+    if (aceleracion > 30) {
+      final ahora = DateTime.now();
+      if (ahora.difference(_ultimaSacudida).inSeconds > 10) {
+        _ultimaSacudida = ahora;
 
-    if (snapshot.docs.isNotEmpty) {
-      final alerta = snapshot.docs.first.data() as Map<String, dynamic>;
-      final uidEmisor = alerta['uid'];
-      final nombreEmisor = alerta['name'] ?? 'Alguien';
-      final mensaje = alerta['mensaje'] ?? '🚨 ¡$nombreEmisor ha enviado una alerta SOS!';
-
-      // Depuración
-      print('🔔 Nueva alerta recibida');
-      print('👤 UID actual: $uidActual');
-      print('📢 UID emisor: $uidEmisor');
-      print('📝 Mensaje: $mensaje');
-
-      if (uidEmisor == uidActual) {
-        print('🚫 Alerta ignorada porque fue enviada por el mismo usuario.');
-        return;
-      }
-
-      if (!_mostrarModalAlerta) {
-        setState(() {
-          _mostrarModalAlerta = true;
-          _mensajeAlerta = mensaje;
-        });
-
-        _mostrarAlertaModal(mensaje);
+        if (!_mostrarModalAlerta) {
+          _showSosModal(context); // Mostrar modal SOS al detectar sacudida fuerte
+        }
       }
     }
   });
+
+  _setupPositionTraking();
 }
 
 
-
- void _mostrarAlertaModal(String mensaje) {
-    showDialog(
-      context: context,
-      barrierDismissible: false, // No cerrar tocando fuera
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('🚨 Alerta SOS'),
-          content: Text(mensaje),
-          actions: [
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  _mostrarModalAlerta = false;
-                });
-                Navigator.of(context).pop();
-              },
-              child: const Text('Cerrar'),
-            ),
-          ],
-        );
-      },
-    );
-  }
 
 
   @override
@@ -149,8 +120,12 @@ void initState() {
     }
     miembrosListeners.clear();
     pointAnnotationManager?.deleteAll();
+    _accelerometerSubscription?.cancel();
+     _alertasSubscription?.cancel();
     super.dispose();
   }
+
+
 
 
 
@@ -180,25 +155,23 @@ void initState() {
       
 
       // Enviar ubicación actual del usuario
-      try {
-        gl.LocationPermission permission = await gl.Geolocator.checkPermission();
-        if (permission == gl.LocationPermission.denied || permission == gl.LocationPermission.deniedForever) {
-          permission = await gl.Geolocator.requestPermission();
-        }
-        final position = await gl.Geolocator.getCurrentPosition(
-          desiredAccuracy: gl.LocationAccuracy.high,
-        );
+   try {
+  gl.LocationPermission permission = await gl.Geolocator.checkPermission();
+  if (permission == gl.LocationPermission.denied || permission == gl.LocationPermission.deniedForever) {
+    permission = await gl.Geolocator.requestPermission();
+  }
+  final position = await gl.Geolocator.getCurrentPosition(
+    desiredAccuracy: gl.LocationAccuracy.high,
+  );
 
-        await FirebaseFirestore.instance.collection('users').doc(currentUser.uid).update({
-          'ubicacion': {
-            'lat': position.latitude,
-            'lng': position.longitude,
-            'timestamp': FieldValue.serverTimestamp(),
-          }
-        });
-      } catch (e) {
-        print('Error al obtener/guardar ubicación: $e');
-      }
+  await FirebaseFirestore.instance.collection('ubicaciones').doc(currentUser.uid).update({
+    'lat': position.latitude,
+    'lng': position.longitude,
+    'timestamp': FieldValue.serverTimestamp(),
+  });
+} catch (e) {
+  print('Error al obtener/guardar ubicación: $e');
+}
     } catch (e) {
       print('Error cargando usuario: $e');
       setState(() {
@@ -366,32 +339,148 @@ Future<void> _crearCirculo(mp.Point posicion) async {
   );
 }
 
+
+List<String> codigosRiesgo = [];
+
+void _abrirZonasRiesgo() async {
+  final codigos = await Navigator.push<List<String>>(
+    context,
+    MaterialPageRoute(builder: (context) => ZonasRiesgoScreen()),
+  );
+
+  if (codigos != null) {
+    // Guardar los códigos recibidos en estado
+    setState(() {
+      codigosRiesgo = codigos;
+    });
+
+    // Y pintar en el mapa
+    if (mapboxMapController != null) {
+      await _mostrarGeoJsonTlaxcala(mapboxMapController!);
+    }
+  }
+}
+Future<void> refrescarZonasTlaxcala(mp.MapboxMap mapboxMap) async {
+  // Recargar el estilo actual (puedes usar el mismo que tenías)
+  await mapboxMap.loadStyleURI('mapbox://styles/mapbox/streets-v12'); // o tu estilo personalizado
+
+  // Esperar a que se cargue antes de agregar capas
+    _mostrarGeoJsonTlaxcala(mapboxMap);
+ 
+}
+
+
+
+
+Future<void> _mostrarGeoJsonTlaxcala(mp.MapboxMap mapboxMap) async {
+  print("Iniciando carga del GeoJSON...");
+
+  final geoJsonData = await rootBundle.loadString('assets/geojson/tlaxcala_zonas.geojson');
+  print("GeoJSON cargado, tamaño: ${geoJsonData.length} caracteres");
+
+  try {
+    await mapboxMap.style.addSource(
+      mp.GeoJsonSource(id: "tlaxcala-source", data: geoJsonData),
+    );
+    print("Fuente 'tlaxcala-source' agregada al mapa");
+  } catch (e) {
+    print("Error agregando fuente: $e");
+  }
+
+  final filtroAlto = ['==', ['get', 'riesgo'], 'Alto'];
+  print("Filtro para riesgo alto definido: $filtroAlto");
+
+  final fillLayerAlto = mp.FillLayer(
+    id: "tlaxcala-layer-alto",
+    sourceId: "tlaxcala-source",
+    filter: filtroAlto,
+    fillColor: 0x80FF0000, // rojo semitransparente
+    fillOpacity: 0.5,
+  );
+
+  try {
+    await mapboxMap.style.addLayer(fillLayerAlto);
+    print("Capa de riesgo 'Alto' agregada al mapa");
+  } catch (e) {
+    print("Error agregando capa de riesgo: $e");
+  }
+
+  print("Proceso terminado");
+}
+
+
+
+
+
+ void _escucharAlertasEnTiempoReal() {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null) return;
+
+  _alertasSubscription = FirebaseFirestore.instance
+      .collectionGroup('alertas')
+      .orderBy('timestamp', descending: true)
+      .snapshots()
+      .listen((snapshot) {
+    if (snapshot.docs.isEmpty) return;
+
+    final alerta = snapshot.docs.first;
+    final emisorId = alerta['emisorid'];
+    final timestamp = alerta['timestamp'] as Timestamp;
+
+    // Solo si no es del mismo usuario y es una alerta nueva
+    if ((_ultimoTimestampVisto == null || timestamp.compareTo(_ultimoTimestampVisto!) > 0) &&
+        emisorId != uid) {
+      setState(() {
+        _mostrarNotificacion = true;
+        _ultimoTimestampVisto = timestamp;
+      });
+    }
+  });
+}
+
+
+
+
+
+
+
 void _onMapCreated(mp.MapboxMap controller) async {
   setState(() {
     mapboxMapController = controller;
   });
 
-  await mapboxMapController?.location.updateSettings(
+  // Navega para obtener los códigos de riesgo
+  final resultado = await Navigator.push<List<String>>(
+    context,
+    MaterialPageRoute(builder: (_) => ZonasRiesgoScreen()),
+  );
+
+  if (resultado != null) {
+    codigosRiesgo = resultado;
+    await _mostrarGeoJsonTlaxcala(controller);
+  }
+
+  await controller.location.updateSettings(
     mp.LocationComponentSettings(enabled: true),
   );
 
-  pointAnnotationManager = await mapboxMapController!.annotations.createPointAnnotationManager();
-  circleAnnotationManager = await mapboxMapController!.annotations.createCircleAnnotationManager();
+  pointAnnotationManager = await controller.annotations.createPointAnnotationManager();
+  circleAnnotationManager = await controller.annotations.createCircleAnnotationManager();
 
-  // Establece el ID del círculo si no está definido pero viene del widget
+  // Escuchar ubicaciones del círculo seleccionado
   if ((circuloSeleccionadoId == null || circuloSeleccionadoId!.isEmpty) &&
       widget.circleId != null &&
       widget.circleId!.isNotEmpty) {
     circuloSeleccionadoId = widget.circleId;
   }
 
-  // Verifica que el ID no sea nulo ni vacío antes de llamar a Firestore
   if (circuloSeleccionadoId != null && circuloSeleccionadoId!.isNotEmpty) {
     _escucharUbicacionesDelCirculo(circuloSeleccionadoId!);
   } else {
     print('❗ No se ha seleccionado ningún círculo. No se puede escuchar ubicaciones.');
   }
 }
+
 
 
 Future<void> _setupPositionTraking() async {
@@ -502,6 +591,9 @@ void _mostrarOpcionesFamilia() {
   );
 }
 
+
+
+
 Future<void> _mostrarModalSeleccionCirculo() async {
   final circulos = await _getCirculosUsuario();
 
@@ -606,7 +698,7 @@ void _mostrarFormularioAgregar(BuildContext context) {
             if (nombre.isEmpty || numero.isEmpty) return;
 
             await FirebaseFirestore.instance
-                .collection('usuarios')
+                .collection('contactos')
                 .doc(userId)
                 .collection('contactos_emergencia')
                 .add({
@@ -648,7 +740,7 @@ void _editarContacto(BuildContext context, String id, String nombreActual, Strin
         ElevatedButton(
           onPressed: () async {
             await FirebaseFirestore.instance
-                .collection('usuarios')
+                .collection('contactos')
                 .doc(userId)
                 .collection('contactos_emergencia')
                 .doc(id)
@@ -669,11 +761,29 @@ void _eliminarContacto(BuildContext context, String id) async {
   final userId = FirebaseAuth.instance.currentUser?.uid;
 
   await FirebaseFirestore.instance
-      .collection('usuarios')
+      .collection('contactos')
       .doc(userId)
       .collection('contactos_emergencia')
       .doc(id)
       .delete();
+}
+
+Future<void> _llamarNumero(BuildContext context, String numero) async {
+  final Uri telUri = Uri(scheme: 'tel', path: numero);
+
+  try {
+    if (await canLaunchUrl(telUri)) {
+      await launchUrl(telUri);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se puede llamar a $numero')),
+      );
+    }
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Error al intentar llamar: $e')),
+    );
+  }
 }
 
 Widget _contactTile(BuildContext context, String id, String nombre, String numero) {
@@ -701,10 +811,13 @@ Widget _contactTile(BuildContext context, String id, String nombre, String numer
           ),
         ],
       ),
-      onTap: () => Navigator.pop(context),
+      onTap: () {
+        _llamarNumero(context, numero);
+      },
     ),
   );
 }
+
 
 Future<void> _modalTelefono(BuildContext context) async {
   final theme = Theme.of(context);
@@ -736,7 +849,7 @@ Future<void> _modalTelefono(BuildContext context) async {
             const SizedBox(height: 20),
             StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
-                  .collection('usuarios')
+                  .collection('contactos')
                   .doc(userId)
                   .collection('contactos_emergencia')
                   .snapshots(),
@@ -782,6 +895,121 @@ Future<void> _modalTelefono(BuildContext context) async {
   );
 }
 
+void _mostrarModalReporteHistorico(BuildContext context) {
+  final TextEditingController descripcionController = TextEditingController();
+  final user = FirebaseAuth.instance.currentUser;
+
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+    ),
+    builder: (context) {
+      final mediaQuery = MediaQuery.of(context);
+      return Padding(
+        padding: EdgeInsets.only(
+          bottom: mediaQuery.viewInsets.bottom + 20,
+          left: 20,
+          right: 20,
+          top: 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Nuevo reporte histórico',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 15),
+            TextField(
+              controller: descripcionController,
+              maxLines: 5,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'Descripción',
+                hintText: 'Escribe aquí la descripción del reporte...',
+              ),
+            ),
+            const SizedBox(height: 15),
+            ElevatedButton(
+              onPressed: () async {
+                final descripcion = descripcionController.text.trim();
+                if (descripcion.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('La descripción no puede estar vacía')),
+                  );
+                  return;
+                }
+
+                if (user == null) {
+                  Navigator.pop(context);
+                  return;
+                }
+
+                // Obtener nombre del usuario desde Firestore
+                final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+                final nombre = userDoc.data()?['name'] ?? 'Amsp';
+
+                // Obtener ubicación actual
+                gl.Position? posicion;
+                try {
+                  bool servicioActivo = await gl.Geolocator.isLocationServiceEnabled();
+                  if (!servicioActivo) {
+                    posicion = null;
+                  } else {
+                    gl.LocationPermission permiso = await gl.Geolocator.checkPermission();
+                    if (permiso == gl.LocationPermission.denied || permiso == gl.LocationPermission.deniedForever) {
+                      permiso = await gl.Geolocator.requestPermission();
+                      if (permiso == gl.LocationPermission.denied || permiso == gl.LocationPermission.deniedForever) {
+                        posicion = null;
+                      }
+                    }
+                    if (permiso != gl.LocationPermission.denied && permiso != gl.LocationPermission.deniedForever) {
+                      posicion = await gl.Geolocator.getCurrentPosition(desiredAccuracy: gl.LocationAccuracy.high);
+                    }
+                  }
+                } catch (e) {
+                  posicion = null;
+                }
+
+                // Crear el mapa con la info para guardar
+                Map<String, dynamic> reporteData = {
+                  'mensaje': descripcion,
+                  'name': nombre,
+                  'timestamp': FieldValue.serverTimestamp(),
+                  'uid': user.uid,
+                };
+
+                if (posicion != null) {
+                  reporteData['ubicacion'] = {
+                    'lat': posicion.latitude,
+                    'lng': posicion.longitude,
+                  };
+                }
+
+                // Guardar en Firestore en subcolección reportes_historicos de usuario
+                await FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(user.uid)
+                    .collection('reportes_historicos')
+                    .add(reporteData);
+
+                Navigator.pop(context);
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Reporte histórico guardado')),
+                );
+              },
+              child: const Text('Guardar reporte'),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
 
 
 
@@ -800,60 +1028,52 @@ Widget build(BuildContext context) {
   }
 
 return Scaffold(
-      appBar: AppBar(
-        centerTitle: true,
-        title: const Text('AMSP'),
-        leading: _iconButton(Icons.settings, () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const ConfScreen()),
-          );
-        }, contrastColor),
-        actions: [
-          StreamBuilder<QuerySnapshot>(
-            stream: _alertasStream(),
-            builder: (context, snapshot) {
-              bool hayAlertas = false;
-              if (snapshot.hasData) {
-                hayAlertas = snapshot.data!.docs.isNotEmpty && _mostrarModalAlerta;
-              }
-
-              return Stack(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.notifications),
-                    color: contrastColor,
-                    onPressed: () {
-                      setState(() {
-                        _mostrarModalAlerta = false; // Se oculta la bolita si abren pantalla notificaciones
-                      });
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const NotificationScreen()),
-                      );
-                    },
-                  ),
-                  if (hayAlertas)
-                    Positioned(
-                      right: 8,
-                      top: 8,
-                      child: Container(
-                        width: 12,
-                        height: 12,
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            },
+appBar: AppBar(
+  centerTitle: true,
+  title: const Text('AMSP'),
+  leading: _iconButton(Icons.settings, () {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ConfScreen()),
+    );
+  }, contrastColor),
+  actions: [
+    Stack(
+      children: [
+        IconButton(
+          icon: const Icon(Icons.notifications),
+          color: contrastColor,
+          onPressed: () {
+            setState(() {
+              _mostrarNotificacion = false; // Oculta bolita al abrir
+            });
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const NotificationScreen()),
+            );
+          },
+        ),
+        if (_mostrarNotificacion)
+          Positioned(
+            right: 8,
+            top: 8,
+            child: Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                color: Colors.red,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+              ),
+            ),
           ),
-        ],
-      ),
+      ],
+    ),
+  ],
+),
+
     body: Stack(
+      
       children: [
         mp.MapWidget(
           onMapCreated: _onMapCreated,
@@ -915,21 +1135,61 @@ return Scaffold(
                   MaterialPageRoute(builder: (_) => const AgregarDispositivoScreen()),
                 );
               },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.transparent,
-                shadowColor: Colors.transparent,
-                surfaceTintColor: Colors.transparent,
-                foregroundColor: contrastColor,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                textStyle: const TextStyle(fontSize: 14),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                elevation: 0,
-              ),
+            style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.transparent,
+            shadowColor: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
+            foregroundColor: contrastColor,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+            textStyle: const TextStyle(fontSize: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            elevation: 0,
+          ),
+        ),
+      ),
+    ),
+
+    // NUEVO: Botón Reporte Histórico abajo izquierda
+    Positioned(
+      
+      bottom: 35,
+      left: 20,
+      child: Container(
+        decoration: BoxDecoration(
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.5),
+              spreadRadius: 2,
+              blurRadius: 7,
+              offset: const Offset(0, 7),
+            ),
+          ],
+          shape: BoxShape.circle,
+        ),
+        child: RawMaterialButton(
+          onPressed: () => _mostrarModalReporteHistorico(context),
+          
+          fillColor: orangeTrans,// o el color que quieras para diferenciar
+          shape: const CircleBorder(),
+          constraints: const BoxConstraints.tightFor(
+            width: 90,
+            height: 90,
+          ),
+          elevation: 0,
+          child: const Text(
+            'Reporte',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
             ),
           ),
         ),
-      ],
+      ),
     ),
+  ],
+),
     floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     floatingActionButton: Padding(
       padding: const EdgeInsets.only(bottom: 20, right: 20),
@@ -972,7 +1232,9 @@ return Scaffold(
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
-            _bottomIcon(Icons.location_on, () {}, contrastColor),
+             _bottomIcon(Icons.location_on, () async {
+          _abrirZonasRiesgo();
+        }, contrastColor),
             _bottomIcon(Icons.family_restroom, () {
               Navigator.push(
                 context,
@@ -1053,8 +1315,8 @@ Future<void> _enviarAlerta() async {
     final circleId = doc.id;
 
     Map<String, dynamic> alertaData = {
-      'mensaje': '🚨 ¡$nombre ha enviado una alerta SOS!',
-      'uid': uid,
+      'mensaje': '¡$nombre ha enviado una alerta SOS!',
+      'emisorid': uid,
       'name': nombre,
       'phone': phone,
       'timestamp': FieldValue.serverTimestamp(),
@@ -1147,3 +1409,4 @@ void _showSosModal(BuildContext context) {
   });
 }
 }
+

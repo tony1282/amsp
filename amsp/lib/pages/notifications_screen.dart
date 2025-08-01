@@ -27,69 +27,80 @@ class NotificationScreen extends StatelessWidget {
       return StreamGroup.merge(streams);
     });
   }
+@override
+Widget build(BuildContext context) {
+  final theme = Theme.of(context);
+  final primaryColor = theme.primaryColor;
+  final contrastColor = theme.appBarTheme.foregroundColor ?? Colors.white;
+  final uidActual = FirebaseAuth.instance.currentUser?.uid ?? '';
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final primaryColor = theme.primaryColor;
-    final contrastColor = theme.appBarTheme.foregroundColor ?? Colors.white;
+  print('UID actual: $uidActual'); // Para depurar
 
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: primaryColor,
-        centerTitle: true,
-        title: Text(
-          'Alertas',
-          style: theme.appBarTheme.titleTextStyle ??
-              TextStyle(
-                color: contrastColor,
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.5,
-              ),
-        ),
+  return Scaffold(
+    appBar: AppBar(
+      backgroundColor: primaryColor,
+      centerTitle: true,
+      title: Text(
+        'Alertas',
+        style: theme.appBarTheme.titleTextStyle ??
+            TextStyle(
+              color: contrastColor,
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.5,
+            ),
       ),
-      backgroundColor: Colors.white,
-      body: StreamBuilder<QuerySnapshot>(
-        stream: _alertasStream(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-          final docs = snapshot.data!.docs;
+    ),
+    backgroundColor: Colors.white,
+   body: StreamBuilder<QuerySnapshot>(
+  stream: _alertasStream(),
+  builder: (context, snapshot) {
+    if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
-          if (docs.isEmpty) {
-            return const Center(child: Text('No hay alertas.'));
-          }
+    final docs = snapshot.data!.docs;
 
-       return ListView(
-  children: docs.map((doc) {
-    final data = doc.data() as Map<String, dynamic>;
-    final mensaje = data['mensaje'] ?? 'Alerta';
-    final timestamp = data['timestamp']?.toDate().toString() ?? '';
-    final ubicacion = data['ubicacion'];
+    // Filtrar alertas para ignorar las enviadas por el usuario actual
+    final alertasFiltradas = docs.where((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      final emisorId = data['emisorid']?.toString() ?? '';
+      final uidActual = FirebaseAuth.instance.currentUser?.uid ?? '';
+      return emisorId != uidActual;
+    }).toList();
 
-    String ubicacionTexto = '';
-    if (ubicacion != null && ubicacion is Map<String, dynamic>) {
-      final lat = ubicacion['lat'];
-      final lng = ubicacion['lng'];
-      if (lat != null && lng != null) {
-        ubicacionTexto = '\nUbicación: ($lat, $lng)';
-      }
+    if (alertasFiltradas.isEmpty) {
+      return const Center(child: Text('No hay alertas.'));
     }
 
-    return ListTile(
-      leading: const Icon(Icons.warning, color: Colors.red),
-      title: Text(mensaje),
-      subtitle: Text('$timestamp$ubicacionTexto'),
-    );
-  }).toList(),
-);
+    return ListView(
+      children: alertasFiltradas.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        final mensaje = data['mensaje'] ?? 'Alerta';
+        final timestamp = data['timestamp']?.toDate().toString() ?? '';
+        final ubicacion = data['ubicacion'];
 
-        },
-      ),
-      bottomNavigationBar: BottomAppBar(
-        color: primaryColor,
-        child: const SizedBox(height: 50),
-      ),
+        String ubicacionTexto = '';
+        if (ubicacion != null && ubicacion is Map<String, dynamic>) {
+          final lat = ubicacion['lat'];
+          final lng = ubicacion['lng'];
+          if (lat != null && lng != null) {
+            ubicacionTexto = '\nUbicación: ($lat, $lng)';
+          }
+        }
+
+        return ListTile(
+          leading: const Icon(Icons.warning, color: Colors.red),
+          title: Text(mensaje),
+          subtitle: Text('$timestamp$ubicacionTexto'),
+        );
+      }).toList(),
     );
-  }
+  },
+),
+
+    bottomNavigationBar: BottomAppBar(
+      color: primaryColor,
+      child: const SizedBox(height: 50),
+    ),
+  );
+}
 }
