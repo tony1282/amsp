@@ -1,8 +1,10 @@
+// Importaciones necesarias
 import 'package:amsp/pages/home_page.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+// Pantalla para unirse a un círculo familiar o de amigos
 class UnirseCirculoScreen extends StatefulWidget {
   const UnirseCirculoScreen({super.key});
 
@@ -11,14 +13,16 @@ class UnirseCirculoScreen extends StatefulWidget {
 }
 
 class _UnirseCirculoScreenState extends State<UnirseCirculoScreen> {
-  final _codigoController = TextEditingController();
+  final _codigoController = TextEditingController(); // Controlador para el campo del código
   final _firestore = FirebaseFirestore.instance;
   final _auth = FirebaseAuth.instance;
-  bool _isLoading = false;
+  bool _isLoading = false; // Indicador de carga para desactivar botón durante operación
 
+  // Función principal para unirse al círculo
   Future<void> _unirseACirculo() async {
-    final codigo = _codigoController.text.trim();
+    final codigo = _codigoController.text.trim(); // Elimina espacios
 
+    // Verifica que el campo no esté vacío
     if (codigo.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Por favor escribe un código')),
@@ -26,15 +30,17 @@ class _UnirseCirculoScreenState extends State<UnirseCirculoScreen> {
       return;
     }
 
-    setState(() => _isLoading = true);
+    setState(() => _isLoading = true); // Inicia el estado de carga
 
     try {
+      // Busca un círculo con ese código
       final circleSnap = await _firestore
           .collection('circulos')
           .where('codigo', isEqualTo: codigo)
           .limit(1)
           .get();
 
+      // Si no se encuentra el círculo, mostrar mensaje
       if (circleSnap.docs.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('No se encontró ningún círculo con ese código')),
@@ -43,11 +49,13 @@ class _UnirseCirculoScreenState extends State<UnirseCirculoScreen> {
         return;
       }
 
+      // Se obtiene el documento del círculo
       final circleDoc = circleSnap.docs.first;
       final circleId = circleDoc.id;
       final circleRef = _firestore.collection('circulos').doc(circleId);
       final user = _auth.currentUser;
 
+      // Verifica si hay sesión iniciada
       if (user == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('No has iniciado sesión')),
@@ -56,9 +64,11 @@ class _UnirseCirculoScreenState extends State<UnirseCirculoScreen> {
         return;
       }
 
+      // Obtiene datos del usuario desde la colección 'users'
       final userDoc = await _firestore.collection('users').doc(user.uid).get();
       final data = userDoc.data();
 
+      // Si no se encuentran los datos del usuario
       if (data == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('No se encontraron tus datos')),
@@ -67,6 +77,7 @@ class _UnirseCirculoScreenState extends State<UnirseCirculoScreen> {
         return;
       }
 
+      // Datos que se agregarán al círculo
       final miembroData = {
         'uid': user.uid,
         'name': data['name'] ?? 'desconocido',
@@ -75,6 +86,7 @@ class _UnirseCirculoScreenState extends State<UnirseCirculoScreen> {
         'rol': data['rol'] ?? 'familiar',
       };
 
+      // Verifica si el usuario ya es miembro del círculo
       final miembrosArray = List.from(circleDoc.data()?['miembros'] ?? []);
       final yaExiste = miembrosArray.any((m) {
         if (m is Map && m['uid'] == user.uid) return true;
@@ -89,16 +101,19 @@ class _UnirseCirculoScreenState extends State<UnirseCirculoScreen> {
         return;
       }
 
+      // Agrega al usuario a los arrays de miembros y miembrosUids
       await circleRef.update({
         'miembros': FieldValue.arrayUnion([miembroData]),
         'miembrosUids': FieldValue.arrayUnion([user.uid]),
       });
 
+      // También lo guarda como documento en la subcolección 'miembros'
       await circleRef
           .collection('miembros')
           .doc(user.uid)
           .set(miembroData, SetOptions(merge: true));
 
+      // Muestra mensaje de éxito y navega a HomePage con el círculo
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Te has unido al círculo exitosamente')),
       );
@@ -110,11 +125,12 @@ class _UnirseCirculoScreenState extends State<UnirseCirculoScreen> {
         ),
       );
     } catch (e) {
+      // Manejo de errores en consola y snackbar
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e')),
       );
     } finally {
-      setState(() => _isLoading = false);
+      setState(() => _isLoading = false); // Finaliza estado de carga
     }
   }
 
@@ -144,6 +160,7 @@ class _UnirseCirculoScreenState extends State<UnirseCirculoScreen> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 20),
+              // Campo para ingresar el código
               TextField(
                 controller: _codigoController,
                 decoration: InputDecoration(
@@ -162,6 +179,7 @@ class _UnirseCirculoScreenState extends State<UnirseCirculoScreen> {
                 ),
               ),
               const SizedBox(height: 30),
+              // Botón para unirse
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: greenColor,

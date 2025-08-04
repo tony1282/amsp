@@ -1,8 +1,10 @@
+// Importaciones necesarias para Firebase, Firestore y widgets de Flutter
 import 'package:amsp/pages/inicio_sesion_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+// Widget principal que muestra los datos del usuario
 class UserScreenCon extends StatefulWidget {
   const UserScreenCon({super.key});
 
@@ -11,21 +13,23 @@ class UserScreenCon extends StatefulWidget {
 }
 
 class _UserScreenConState extends State<UserScreenCon> {
-  final _auth = FirebaseAuth.instance;
-  final _firestore = FirebaseFirestore.instance;
+  final _auth = FirebaseAuth.instance; // Instancia de autenticación de Firebase
+  final _firestore = FirebaseFirestore.instance; // Instancia de Firestore
 
+  // Variables para almacenar datos del usuario
   String? _correo;
   String? _nombre;
   String? _telefono;
   String? _fotoURL;
-  bool _cargando = true;
+  bool _cargando = true; // Estado para indicar si los datos están cargando
 
   @override
   void initState() {
     super.initState();
-    _obtenerDatos();
+    _obtenerDatos(); // Carga los datos al iniciar el widget
   }
 
+  // Función para obtener los datos del usuario desde Firebase
   Future<void> _obtenerDatos() async {
     final user = _auth.currentUser;
 
@@ -43,6 +47,7 @@ class _UserScreenConState extends State<UserScreenCon> {
     }
   }
 
+  // Función para cerrar sesión y volver a la pantalla de inicio
   Future<void> _cerrarSesion() async {
     await _auth.signOut();
     if (!mounted) return;
@@ -51,6 +56,7 @@ class _UserScreenConState extends State<UserScreenCon> {
     );
   }
 
+  // Función para editar nombre o teléfono del usuario
   Future<void> _editarCampo({required String campo}) async {
     String valorActual = campo == 'name' ? (_nombre ?? '') : (_telefono ?? '');
     final controller = TextEditingController(text: valorActual);
@@ -70,13 +76,13 @@ class _UserScreenConState extends State<UserScreenCon> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context), // cancelar
+              onPressed: () => Navigator.pop(context), // Botón cancelar
               child: const Text('Cancelar'),
             ),
             ElevatedButton(
               onPressed: () {
                 if (controller.text.trim().isEmpty) return;
-                Navigator.pop(context, controller.text.trim());
+                Navigator.pop(context, controller.text.trim()); // Guarda y cierra
               },
               child: const Text('Guardar'),
             ),
@@ -88,11 +94,13 @@ class _UserScreenConState extends State<UserScreenCon> {
     if (resultado != null) {
       final user = _auth.currentUser;
       if (user != null) {
+        // Actualiza el campo en Firestore
         await _firestore.collection('users').doc(user.uid).set(
           {campo: resultado},
           SetOptions(merge: true),
         );
 
+        // Actualiza la interfaz local
         setState(() {
           if (campo == 'name') {
             _nombre = resultado;
@@ -104,6 +112,7 @@ class _UserScreenConState extends State<UserScreenCon> {
     }
   }
 
+  // Widget personalizado para mostrar la información editable del usuario
   Widget buildInfoBox(String label, String value, ThemeData theme,
       {VoidCallback? onEdit}) {
     return Row(
@@ -145,7 +154,7 @@ class _UserScreenConState extends State<UserScreenCon> {
             padding: const EdgeInsets.only(left: 8, top: 18),
             child: IconButton(
               icon: const Icon(Icons.edit, color: Colors.white),
-              onPressed: onEdit,
+              onPressed: onEdit, // Llama a la función de editar
             ),
           ),
       ],
@@ -173,7 +182,7 @@ class _UserScreenConState extends State<UserScreenCon> {
         ),
       ),
       body: _cargando
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator()) // Indicador de carga
           : SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 40),
               child: Column(
@@ -216,7 +225,7 @@ class _UserScreenConState extends State<UserScreenCon> {
                           ),
                           const SizedBox(height: 20),
                           ElevatedButton.icon(
-                            onPressed: _cerrarSesion,
+                            onPressed: _cerrarSesion, // Botón cerrar sesión
                             style: ElevatedButton.styleFrom(
                               backgroundColor: secondaryColor,
                               foregroundColor: Colors.white,

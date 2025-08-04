@@ -1,10 +1,12 @@
+// Importaciones necesarias
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:amsp/models/user_model.dart';
-import 'mostrar_codigo_screen.dart';
+import 'mostrar_codigo_screen.dart'; // Pantalla que muestra el código generado
 
+// Widget de estado para crear círculos
 class CrearCirculoScreen extends StatefulWidget {
   const CrearCirculoScreen({super.key});
 
@@ -13,9 +15,9 @@ class CrearCirculoScreen extends StatefulWidget {
 }
 
 class _CrearCirculoScreenState extends State<CrearCirculoScreen> {
+  // Modal para escribir el nombre del círculo
   Future<void> _mostrarModalNombre(BuildContext context, String tipo) async {
     final TextEditingController _controller = TextEditingController();
-
     final BuildContext parentContext = context;
     final Color modalVerde = Theme.of(context).primaryColor;
 
@@ -24,13 +26,8 @@ class _CrearCirculoScreenState extends State<CrearCirculoScreen> {
       builder: (contextDialog) {
         return AlertDialog(
           backgroundColor: modalVerde,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-          title: const Text(
-            'Nombre del círculo',
-            style: TextStyle(color: Colors.white),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          title: const Text('Nombre del círculo', style: TextStyle(color: Colors.white)),
           content: TextField(
             controller: _controller,
             decoration: InputDecoration(
@@ -56,9 +53,6 @@ class _CrearCirculoScreenState extends State<CrearCirculoScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white,
                 foregroundColor: Colors.black,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
               ),
               child: const Text('Crear'),
               onPressed: () async {
@@ -79,8 +73,8 @@ class _CrearCirculoScreenState extends State<CrearCirculoScreen> {
     );
   }
 
-  Future<void> _crearCirculo(
-      BuildContext context, String tipo, String nombre) async {
+  // Función para crear el círculo en Firestore
+  Future<void> _crearCirculo(BuildContext context, String tipo, String nombre) async {
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid == null) {
@@ -90,6 +84,7 @@ class _CrearCirculoScreenState extends State<CrearCirculoScreen> {
         return;
       }
 
+      // Obtener datos del usuario actual
       final usuarioDoc =
           await FirebaseFirestore.instance.collection('users').doc(uid).get();
 
@@ -103,6 +98,7 @@ class _CrearCirculoScreenState extends State<CrearCirculoScreen> {
       final userData = usuarioDoc.data();
       final codigo = _generarCodigo();
 
+      // Crear objeto del miembro fundador
       final miembro = {
         'uid': uid,
         'name': userData?['name'] ?? 'Sin nombre',
@@ -111,22 +107,25 @@ class _CrearCirculoScreenState extends State<CrearCirculoScreen> {
         'rol': userData?['rol'] ?? 'admin',
       };
 
+      // Datos del círculo
       final nuevoCirculo = {
         'tipo': tipo,
         'nombre': nombre,
         'codigo': codigo,
         'creador': uid,
-        'miembros': [miembro],
-        'miembrosUids': [uid],
+        'miembros': [miembro],           // Lista integrada
+        'miembrosUids': [uid],           // Para búsquedas rápidas
         'creadoEn': FieldValue.serverTimestamp(),
       };
 
-      final docRef =
-          await FirebaseFirestore.instance.collection('circulos').add(nuevoCirculo);
+      // Guardar círculo y miembro fundador en subcolección
+      final docRef = await FirebaseFirestore.instance
+          .collection('circulos')
+          .add(nuevoCirculo);
 
-      // Guardar el mismo miembro como documento en subcolección
       await docRef.collection('miembros').doc(uid).set(miembro);
 
+      // Ir a pantalla para mostrar el código generado
       if (context.mounted) {
         Navigator.push(
           context,
@@ -146,12 +145,14 @@ class _CrearCirculoScreenState extends State<CrearCirculoScreen> {
     }
   }
 
+  // Generador de código de 6 caracteres
   String _generarCodigo() {
-    const letras = 'ABCDEFGHJKLMNPQRSTUVWXYZ123456789';
+    const letras = 'ABCDEFGHJKLMNPQRSTUVWXYZ123456789'; // Evita letras como I y O
     final rand = Random();
     return List.generate(6, (_) => letras[rand.nextInt(letras.length)]).join();
   }
 
+  // Interfaz de usuario
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -166,39 +167,26 @@ class _CrearCirculoScreenState extends State<CrearCirculoScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Botón para círculo familiar
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: greenColor,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 50,
-                    vertical: 18,
-                  ),
-                  textStyle: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 18),
+                  textStyle: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 onPressed: () => _mostrarModalNombre(context, 'familia'),
                 child: const Text('Crear Círculo Familiar'),
               ),
               const SizedBox(height: 30),
+
+              // Botón para círculo de amigos
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: greenColor,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 50,
-                    vertical: 18,
-                  ),
-                  textStyle: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 18),
+                  textStyle: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 onPressed: () => _mostrarModalNombre(context, 'amistad'),
                 child: const Text('Crear Círculo de Amigos'),

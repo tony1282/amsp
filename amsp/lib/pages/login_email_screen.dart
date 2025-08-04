@@ -1,7 +1,9 @@
+// Importación de paquetes necesarios
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:amsp/pages/phone_number_screen.dart';
 
+// Pantalla para registrarse con correo electrónico
 class LoginEmailScreen extends StatefulWidget {
   const LoginEmailScreen({super.key});
 
@@ -10,21 +12,25 @@ class LoginEmailScreen extends StatefulWidget {
 }
 
 class _LoginEmailScreenState extends State<LoginEmailScreen> {
-  final _nameController = TextEditingController(); // <- NUEVO
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  // Controladores para los campos de texto
+  final _nameController = TextEditingController();     // Campo para el nombre del usuario
+  final _emailController = TextEditingController();    // Campo para el correo electrónico
+  final _passwordController = TextEditingController(); // Campo para la contraseña
 
+  // Método que se ejecuta al presionar el botón de registro
   Future<void> _submit() async {
     try {
+      // Crea una nueva cuenta con correo y contraseña en Firebase
       final credential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
 
-      // 👇 Guardar nombre si se ingresó
+      // Guarda el nombre proporcionado como displayName del usuario
       await credential.user?.updateDisplayName(_nameController.text.trim());
-      await credential.user?.reload(); // refrescar datos
+      await credential.user?.reload(); // Actualiza la información del usuario
 
+      // Navega a la pantalla para ingresar el número de teléfono
       if (context.mounted) {
         Navigator.pushReplacement(
           context,
@@ -32,6 +38,7 @@ class _LoginEmailScreenState extends State<LoginEmailScreen> {
         );
       }
     } catch (e) {
+      // Muestra un error en un SnackBar si algo falla
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: ${e.toString()}')),
       );
@@ -52,6 +59,7 @@ class _LoginEmailScreenState extends State<LoginEmailScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // Encabezado con avatar e ícono
                 const Padding(
                   padding: EdgeInsets.only(bottom: 50),
                   child: Column(
@@ -72,6 +80,7 @@ class _LoginEmailScreenState extends State<LoginEmailScreen> {
                   ),
                 ),
 
+                // Título de la pantalla
                 const Text(
                   'Registrarse con correo electrónico',
                   style: TextStyle(
@@ -83,7 +92,7 @@ class _LoginEmailScreenState extends State<LoginEmailScreen> {
 
                 const SizedBox(height: 20),
 
-                // ✅ Campo para nombre
+                // Campo de texto para el nombre
                 TextField(
                   controller: _nameController,
                   decoration: InputDecoration(
@@ -105,6 +114,7 @@ class _LoginEmailScreenState extends State<LoginEmailScreen> {
 
                 const SizedBox(height: 15),
 
+                // Campo de texto para el correo electrónico
                 TextField(
                   controller: _emailController,
                   decoration: InputDecoration(
@@ -126,6 +136,7 @@ class _LoginEmailScreenState extends State<LoginEmailScreen> {
 
                 const SizedBox(height: 15),
 
+                // Campo de texto para la contraseña
                 TextField(
                   controller: _passwordController,
                   decoration: InputDecoration(
@@ -142,11 +153,12 @@ class _LoginEmailScreenState extends State<LoginEmailScreen> {
                       borderSide: BorderSide(color: greenColor, width: 2),
                     ),
                   ),
-                  obscureText: true,
+                  obscureText: true, // Oculta el texto por seguridad
                 ),
 
                 const SizedBox(height: 30),
 
+                // Botón para enviar el formulario y registrarse
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: greenColor,

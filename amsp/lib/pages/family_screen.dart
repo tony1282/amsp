@@ -1,9 +1,10 @@
+// Importaciones necesarias
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'circulo_detalle_screen.dart'; // Pantalla para ver detalles del círculo
 
-import 'circulo_detalle_screen.dart'; // Nuevo archivo para detalle
-
+// Widget principal de estado para mostrar los círculos
 class FamilyScreen extends StatefulWidget {
   const FamilyScreen({super.key});
 
@@ -15,14 +16,15 @@ class _FamilyScreenState extends State<FamilyScreen> {
   final _firestore = FirebaseFirestore.instance;
   final _auth = FirebaseAuth.instance;
 
-  late final String uid;
+  late final String uid; // UID del usuario actual
 
   @override
   void initState() {
     super.initState();
-    uid = _auth.currentUser!.uid;
+    uid = _auth.currentUser!.uid; // Se obtiene el UID al iniciar
   }
 
+  // 🔹 Obtener círculos creados por el usuario
   Future<List<QueryDocumentSnapshot>> _getCirculosCreados() async {
     final snapshot = await _firestore
         .collection('circulos')
@@ -31,6 +33,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
     return snapshot.docs;
   }
 
+  // 🔹 Obtener círculos donde el usuario es miembro
   Future<List<QueryDocumentSnapshot>> _getCirculosUnido() async {
     final todosLosCirculos = await _firestore.collection('circulos').get();
 
@@ -40,6 +43,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
       final data = circulo.data() as Map<String, dynamic>;
       final miembros = data['miembros'] as List<dynamic>? ?? [];
 
+      // Verifica si el UID está en la lista de miembros
       final estaEnCirculo = miembros.any((miembro) {
         return miembro['uid'] == uid;
       });
@@ -52,25 +56,26 @@ class _FamilyScreenState extends State<FamilyScreen> {
     return unidos;
   }
 
+  // 🔴 Función para eliminar un círculo (y su subcolección de miembros)
   Future<void> _eliminarCirculo(String circleId) async {
     try {
-      // Primero elimina subcolección miembros
       final miembrosSnapshot = await _firestore
           .collection('circulos')
           .doc(circleId)
           .collection('miembros')
           .get();
+
       for (var doc in miembrosSnapshot.docs) {
-        await doc.reference.delete();
+        await doc.reference.delete(); // Elimina cada miembro
       }
-      // Luego elimina el documento círculo
-      await _firestore.collection('circulos').doc(circleId).delete();
+
+      await _firestore.collection('circulos').doc(circleId).delete(); // Elimina el círculo
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Círculo eliminado')),
         );
-        setState(() {}); // refrescar lista
+        setState(() {}); // Refresca la pantalla
       }
     } catch (e) {
       if (mounted) {
@@ -81,6 +86,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
     }
   }
 
+  // ✏️ Función para editar el nombre y tipo del círculo
   Future<void> _editarCirculo(String circleId, String nombreActual, String tipoActual) async {
     final nombreController = TextEditingController(text: nombreActual);
     final tipoController = TextEditingController(text: tipoActual);
@@ -117,15 +123,18 @@ class _FamilyScreenState extends State<FamilyScreen> {
                 );
                 return;
               }
+
               await _firestore.collection('circulos').doc(circleId).update({
                 'nombre': nuevoNombre,
                 'tipo': nuevoTipo,
               });
+
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Círculo actualizado')),
                 );
               }
+
               Navigator.pop(context);
               setState(() {});
             },
@@ -136,6 +145,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
     );
   }
 
+  // 🖼️ Interfaz principal
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -155,29 +165,22 @@ class _FamilyScreenState extends State<FamilyScreen> {
         ]),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(
-                color: Colors.green,
-              ),
-            );
-          }
-          if (snapshot.hasError) {
-            return Center(
-              child: Text(
-                'Error: ${snapshot.error}',
-                style: theme.textTheme.bodyMedium,
-              ),
-            );
+            return const Center(child: CircularProgressIndicator(color: Colors.green));
           }
 
-          final creados = snapshot.data![0];
-          final unidos = snapshot.data![1];
+          if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          }
+
+          final creados = snapshot.data![0]; // círculos creados por el usuario
+          final unidos = snapshot.data![1]; // círculos donde es miembro
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // 🟩 Lista de círculos creados
                 Text(
                   'Círculos que creaste:',
                   style: theme.textTheme.headlineSmall?.copyWith(
@@ -187,10 +190,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
                 ),
                 const SizedBox(height: 10),
                 if (creados.isEmpty)
-                  Text(
-                    'No has creado ningún círculo.',
-                    style: theme.textTheme.bodyMedium,
-                  ),
+                  Text('No has creado ningún círculo.'),
                 ...creados.map((doc) {
                   final data = doc.data() as Map<String, dynamic>;
                   final circleId = doc.id;
@@ -212,20 +212,16 @@ class _FamilyScreenState extends State<FamilyScreen> {
                           ),
                         );
                       },
-                      title: Text(
-                        data['nombre'] ?? 'Sin nombre',
-                        style: theme.textTheme.bodyLarge,
-                      ),
-                      subtitle: Text(
-                        data['tipo'] ?? '',
-                        style: theme.textTheme.bodyMedium,
-                      ),
+                      title: Text(data['nombre'] ?? 'Sin nombre'),
+                      subtitle: Text(data['tipo'] ?? ''),
                       leading: Icon(Icons.family_restroom, color: greenColor),
-                      // ELIMINADOS botones editar y eliminar aquí
                     ),
                   );
                 }),
+
                 const Divider(height: 40, thickness: 1.5),
+
+                // 🟦 Lista de círculos unidos
                 Text(
                   'Círculos donde eres miembro:',
                   style: theme.textTheme.headlineSmall?.copyWith(
@@ -235,10 +231,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
                 ),
                 const SizedBox(height: 10),
                 if (unidos.isEmpty)
-                  Text(
-                    'No perteneces a ningún círculo.',
-                    style: theme.textTheme.bodyMedium,
-                  ),
+                  Text('No perteneces a ningún círculo.'),
                 ...unidos.map((doc) {
                   final data = doc.data() as Map<String, dynamic>;
                   final circleId = doc.id;
@@ -260,16 +253,9 @@ class _FamilyScreenState extends State<FamilyScreen> {
                           ),
                         );
                       },
-                      title: Text(
-                        data['nombre'] ?? 'Sin nombre',
-                        style: theme.textTheme.bodyLarge,
-                      ),
-                      subtitle: Text(
-                        data['tipo'] ?? '',
-                        style: theme.textTheme.bodyMedium,
-                      ),
+                      title: Text(data['nombre'] ?? 'Sin nombre'),
+                      subtitle: Text(data['tipo'] ?? ''),
                       leading: Icon(Icons.group, color: greenColor),
-                      // Sin botones aquí
                     ),
                   );
                 }),
