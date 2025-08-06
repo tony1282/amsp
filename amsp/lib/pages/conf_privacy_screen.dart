@@ -49,6 +49,24 @@ class PrivacidadScreen extends StatelessWidget {
 ''',
                 ),
 
+                buildOrangeContainer(
+                  title: 'Seguridad',
+                  description: '''
+• La información se protege mediante cifrado y medidas técnicas que evitan accesos no autorizados. 
+• El usuario puede modificar o eliminar su información desde la app o solicitarlo por correo.
+
+''',
+                  ),
+                  buildOrangeContainer(
+                    title:'Permisos y control',
+                    subtitle: 'El usuario puede:',
+                    description: '''
+• Activar o desactivar permisos de ubicación y notificaciones.
+• Eliminar su cuenta en cualquier momento.
+• Contactarnos en caso de dudas: Amsp@gmail.com
+''',
+                    ),
+
 
             ],
           ),
@@ -101,6 +119,7 @@ class PrivacidadScreen extends StatelessWidget {
             style: const TextStyle(
               color: Colors.white,
               fontSize: 14,
+              height: 1.5,
             ),
             textAlign: TextAlign.justify,
           ),

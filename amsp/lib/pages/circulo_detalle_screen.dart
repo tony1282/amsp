@@ -1,9 +1,9 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class CirculoDetalleScreen extends StatefulWidget {
-  final String circleId; // ID del círculo a mostrar
-  final bool esCreador;  // Indica si el usuario actual es creador del círculo
+  final String circleId;
+  final bool esCreador;
 
   const CirculoDetalleScreen({
     super.key,
@@ -18,93 +18,99 @@ class CirculoDetalleScreen extends StatefulWidget {
 class _CirculoDetalleScreenState extends State<CirculoDetalleScreen> {
   final _firestore = FirebaseFirestore.instance;
 
-  late TextEditingController _nombreController; // Controlador para el campo Nombre
-  late TextEditingController _tipoController;   // Controlador para el campo Tipo
+  late TextEditingController _nombreController;
+  late TextEditingController _tipoController;
 
-  bool _isEditingNombre = false; // Controla si está en modo edición del nombre
-  bool _isEditingTipo = false;   // Controla si está en modo edición del tipo
-
-  Map<String, dynamic>? _circleData; // Datos del círculo obtenidos de Firestore
+  Map<String, dynamic>? _circleData;
 
   @override
   void initState() {
     super.initState();
-    _fetchCircleData(); // Carga inicial de datos del círculo
+    _fetchCircleData();
   }
 
-  // Método para obtener los datos del círculo desde Firestore
   Future<void> _fetchCircleData() async {
     final doc = await _firestore.collection('circulos').doc(widget.circleId).get();
     if (doc.exists) {
       setState(() {
         _circleData = doc.data();
-        // Inicializa los controladores con los valores actuales
         _nombreController = TextEditingController(text: _circleData?['nombre'] ?? '');
         _tipoController = TextEditingController(text: _circleData?['tipo'] ?? '');
-        // Reiniciar estados de edición
-        _isEditingNombre = false;
-        _isEditingTipo = false;
       });
     }
   }
 
-  // Método para guardar cambios de nombre o tipo en Firestore
+  Future<void> _mostrarModalEdicion({required bool editarNombre}) async {
+    final controller = editarNombre ? _nombreController : _tipoController;
+    final label = editarNombre ? 'Nombre' : 'Tipo';
+    final theme = Theme.of(context);
+    final greenColor = theme.primaryColor;
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: greenColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: Text('Editar $label', style: const TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: controller,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            labelText: label,
+            labelStyle: const TextStyle(color: Colors.white70),
+            enabledBorder: const UnderlineInputBorder(
+              borderSide: BorderSide(color: Colors.white70),
+            ),
+            focusedBorder: const UnderlineInputBorder(
+              borderSide: BorderSide(color: Colors.white),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar', style: TextStyle(color: Colors.white)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.white),
+            onPressed: () async {
+              await _guardarCambios(nombre: editarNombre);
+              if (mounted) Navigator.pop(context);
+            },
+            child: Text('Guardar', style: TextStyle(color: greenColor)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _guardarCambios({required bool nombre}) async {
-    String nombreText = _nombreController.text.trim();
-    String tipoText = _tipoController.text.trim();
+    final nombreText = _nombreController.text.trim();
+    final tipoText = _tipoController.text.trim();
 
-    // Validaciones para evitar campos vacíos
-    if (nombre && nombreText.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('El nombre no puede estar vacío')),
-      );
-      return;
-    }
-    if (!nombre && tipoText.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('El tipo no puede estar vacío')),
-      );
-      return;
-    }
+    if (nombre && nombreText.isEmpty) return;
+    if (!nombre && tipoText.isEmpty) return;
 
-    // Actualiza solo el campo correspondiente
     await _firestore.collection('circulos').doc(widget.circleId).update({
       if (nombre) 'nombre': nombreText,
       if (!nombre) 'tipo': tipoText,
     });
 
-    setState(() {
-      if (nombre) {
-        _isEditingNombre = false;
-      } else {
-        _isEditingTipo = false;
-      }
-    });
-    // Refresca los datos para sincronizar UI
     await _fetchCircleData();
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Datos actualizados')),
-    );
   }
 
-  // Método para eliminar un miembro del círculo
   Future<void> _eliminarMiembro(String uid) async {
     try {
-      // Crea copias de las listas actuales para modificar
       final miembros = List.from(_circleData?['miembros'] ?? []);
       miembros.removeWhere((m) => m['uid'] == uid);
-
       final miembrosUids = List.from(_circleData?['miembrosUids'] ?? []);
       miembrosUids.remove(uid);
 
-      // Actualiza el documento del círculo con las listas modificadas
       await _firestore.collection('circulos').doc(widget.circleId).update({
         'miembros': miembros,
         'miembrosUids': miembrosUids,
       });
 
-      // Elimina el documento del miembro en la subcolección "miembros"
       await _firestore
           .collection('circulos')
           .doc(widget.circleId)
@@ -112,45 +118,23 @@ class _CirculoDetalleScreenState extends State<CirculoDetalleScreen> {
           .doc(uid)
           .delete();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Miembro eliminado')),
-      );
-      // Refresca los datos para actualizar la UI
       await _fetchCircleData();
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al eliminar miembro: $e')),
-      );
-    }
+    } catch (_) {}
   }
 
-  // Método para eliminar todo el círculo, incluyendo subcolección miembros
   Future<void> _eliminarCirculo() async {
     try {
-      // Obtiene todos los documentos de la subcolección miembros
       final miembrosSnapshot = await _firestore
           .collection('circulos')
           .doc(widget.circleId)
           .collection('miembros')
           .get();
-      // Elimina todos los documentos de miembros
       for (var doc in miembrosSnapshot.docs) {
         await doc.reference.delete();
       }
-      // Elimina el documento del círculo
       await _firestore.collection('circulos').doc(widget.circleId).delete();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Círculo eliminado')),
-        );
-        Navigator.pop(context); // Vuelve a la pantalla anterior
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al eliminar círculo: $e')),
-      );
-    }
+      if (mounted) Navigator.pop(context);
+    } catch (_) {}
   }
 
   @override
@@ -158,191 +142,171 @@ class _CirculoDetalleScreenState extends State<CirculoDetalleScreen> {
     final theme = Theme.of(context);
     final greenColor = theme.primaryColor;
 
-    // Si aún no se cargaron los datos, muestra un indicador de carga
     if (_circleData == null) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Detalle del círculo'),
-          backgroundColor: greenColor,
-        ),
+        appBar: AppBar(title: const Text('Detalle del círculo'), backgroundColor: greenColor),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
-    // Obtiene lista de miembros y código del círculo
     final miembros = List<Map<String, dynamic>>.from(_circleData?['miembros'] ?? []);
     final codigo = _circleData?['codigo'] ?? '';
-
-    // Widget auxiliar para mostrar campos editables (nombre y tipo)
-    Widget buildEditableCard({
-      required String label,
-      required TextEditingController controller,
-      required bool enabled,
-      required bool isEditing,
-      required VoidCallback onEditPressed,
-    }) {
-      return Card(
-        margin: const EdgeInsets.symmetric(vertical: 6),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        elevation: 2,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: controller,
-                  decoration: InputDecoration(
-                    labelText: label,
-                    border: InputBorder.none,
-                  ),
-                  readOnly: !enabled,
-                  style: TextStyle(
-                    color: enabled ? Colors.black : Colors.grey[700],
-                    fontSize: 16,
-                  ),
-                ),
-              ),
-              if (widget.esCreador) // Solo el creador puede editar
-                IconButton(
-                  icon: Icon(isEditing ? Icons.check : Icons.edit, color: greenColor),
-                  tooltip: isEditing ? 'Guardar' : 'Editar',
-                  onPressed: onEditPressed,
-                ),
-            ],
-          ),
-        ),
-      );
-    }
+    final creadorUid = _circleData?['creador'];
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Detalle del círculo'),
-        backgroundColor: greenColor,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Código del círculo:', style: theme.textTheme.titleMedium),
-            SelectableText(codigo, style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 20),
-
-            // Campo editable para el nombre del círculo
-            buildEditableCard(
-              label: 'Nombre',
-              controller: _nombreController,
-              enabled: _isEditingNombre,
-              isEditing: _isEditingNombre,
-              onEditPressed: () async {
-                if (_isEditingNombre) {
-                  await _guardarCambios(nombre: true);
-                } else {
-                  setState(() {
-                    _isEditingNombre = true;
-                    _isEditingTipo = false; // Desactiva edición del otro campo
-                  });
-                }
-              },
-            ),
-
-            // Campo editable para el tipo del círculo
-            buildEditableCard(
-              label: 'Tipo',
-              controller: _tipoController,
-              enabled: _isEditingTipo,
-              isEditing: _isEditingTipo,
-              onEditPressed: () async {
-                if (_isEditingTipo) {
-                  await _guardarCambios(nombre: false);
-                } else {
-                  setState(() {
-                    _isEditingTipo = true;
-                    _isEditingNombre = false; // Desactiva edición del otro campo
-                  });
-                }
-              },
-            ),
-
-            const SizedBox(height: 30),
-
-            Text('Miembros:', style: theme.textTheme.headlineSmall),
-
-            // Lista de miembros del círculo
-            Expanded(
-              child: ListView.builder(
-                itemCount: miembros.length,
-                itemBuilder: (context, index) {
-                  final miembro = miembros[index];
-                  return Card(
-                    margin: const EdgeInsets.symmetric(vertical: 6),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    elevation: 2,
-                    child: ListTile(
-                      title: Text(miembro['name'] ?? 'Sin nombre'),
-                      subtitle: Text(miembro['email'] ?? ''),
-                      trailing: widget.esCreador
-                          ? IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.red),
-                              tooltip: 'Eliminar miembro',
-                              onPressed: () async {
-                                final confirm = await showDialog<bool>(
-                                  context: context,
-                                  builder: (context) => AlertDialog(
-                                    title: const Text('Confirmar eliminación'),
-                                    content: Text('¿Eliminar a ${miembro['name']}?'),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () => Navigator.pop(context, false),
-                                        child: const Text('Cancelar'),
-                                      ),
-                                      ElevatedButton(
-                                        onPressed: () => Navigator.pop(context, true),
-                                        child: const Text('Eliminar'),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                                if (confirm == true) {
-                                  await _eliminarMiembro(miembro['uid']);
-                                }
-                              },
-                            )
-                          : null,
+      appBar: AppBar(title: const Text('Detalle del círculo'), backgroundColor: greenColor),
+      resizeToAvoidBottomInset: true,
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Código del círculo
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: greenColor,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const Text('Código del círculo:', style: TextStyle(color: Colors.white, fontSize: 16)),
+                    const SizedBox(height: 8),
+                    SelectableText(
+                      codigo,
+                      style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
                     ),
-                  );
-                },
+                  ],
+                ),
               ),
-            ),
 
-            // Botón para eliminar todo el círculo, visible solo para creador
-            if (widget.esCreador)
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: SizedBox(
+              // Nombre y Tipo
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: greenColor,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Círculo', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Nombre del círculo',
+                      style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                    _buildEditableFieldModal('Nombre', () => _mostrarModalEdicion(editarNombre: true), _nombreController.text),
+                    const SizedBox(height: 15),
+                    const Text(
+                      'Tipo de círculo',
+                      style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                    _buildEditableFieldModal('Tipo', () => _mostrarModalEdicion(editarNombre: false), _tipoController.text),
+                  ],
+                ),
+              ),
+
+              // Miembros
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: greenColor,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Miembros:', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 10),
+                    if (miembros.isEmpty)
+                      const Text('No hay miembros', style: TextStyle(color: Colors.white)),
+                    ...miembros.map((miembro) {
+                      final esCreador = miembro['uid'] == creadorUid;
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 5),
+                        child: ListTile(
+                          title: Row(
+                            children: [
+                              Expanded(child: Text('Nombre: ${miembro['name'] ?? 'Sin nombre'}')),
+                              if (esCreador)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: greenColor.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    'Guardián',
+                                    style: TextStyle(
+                                      color: greenColor,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Correo: ${miembro['email'] ?? 'Sin correo'}'),
+                              Text('Número: ${miembro['phone'] ?? 'Sin número'}'),
+                            ],
+                          ),
+                          trailing: (widget.esCreador && !esCreador)
+                              ? IconButton(
+                                  icon: const Icon(Icons.delete, color: Colors.red),
+                                  onPressed: () async {
+                                    final confirm = await showDialog<bool>(
+                                      context: context,
+                                      builder: (context) => AlertDialog(
+                                        title: const Text('Confirmar'),
+                                        content: Text('¿Eliminar a ${miembro['name']}?'),
+                                        actions: [
+                                          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+                                          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Eliminar')),
+                                        ],
+                                      ),
+                                    );
+                                    if (confirm == true) {
+                                      await _eliminarMiembro(miembro['uid']);
+                                    }
+                                  },
+                                )
+                              : null,
+                        ),
+                      );
+                    }).toList(),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              if (widget.esCreador)
+                SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
                     icon: const Icon(Icons.delete_forever),
                     label: const Text('Eliminar Círculo'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                    ),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
                     onPressed: () async {
                       final confirm = await showDialog<bool>(
                         context: context,
-                        builder: (context) => AlertDialog(
-                          title: const Text('Confirmar eliminación'),
+                        builder: (_) => AlertDialog(
+                          title: const Text('Confirmar'),
                           content: const Text('¿Seguro que quieres eliminar este círculo?'),
                           actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context, false),
-                              child: const Text('Cancelar'),
-                            ),
-                            ElevatedButton(
-                              onPressed: () => Navigator.pop(context, true),
-                              child: const Text('Eliminar'),
-                            ),
+                            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+                            ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Eliminar')),
                           ],
                         ),
                       );
@@ -352,9 +316,25 @@ class _CirculoDetalleScreenState extends State<CirculoDetalleScreen> {
                     },
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildEditableFieldModal(String label, VoidCallback onPressed, String value) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ListTile(
+        title: Text(value.isNotEmpty ? value : 'Sin $label'),
+        trailing: widget.esCreador
+            ? Icon(Icons.edit, color: Theme.of(context).primaryColor)
+            : null,
+        onTap: widget.esCreador ? onPressed : null,
       ),
     );
   }

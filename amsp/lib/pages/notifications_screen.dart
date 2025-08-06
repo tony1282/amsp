@@ -89,6 +89,7 @@ class NotificationScreen extends StatelessWidget {
 
           // Muestra las alertas en una lista
           return ListView(
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 15),
             children: alertasFiltradas.map((doc) {
               final data = doc.data() as Map<String, dynamic>;
               final mensaje = data['mensaje'] ?? 'Alerta';
@@ -105,21 +106,35 @@ class NotificationScreen extends StatelessWidget {
                 }
               }
 
-              // Cada alerta se muestra como un ListTile
-              return ListTile(
-                leading: const Icon(Icons.warning, color: Colors.red), // Icono de advertencia
-                title: Text(mensaje), // Mensaje de la alerta
-                subtitle: Text('$timestamp$ubicacionTexto'), // Fecha y ubicación
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(15),
+                decoration: BoxDecoration(
+                  color: primaryColor,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.15),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: ListTile(
+                  leading: const Icon(Icons.warning, color: Color.fromARGB(255, 208, 8, 8)),
+                  title: Text(
+                    mensaje,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Text(
+                    '$timestamp$ubicacionTexto',
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                ),
               );
             }).toList(),
           );
         },
-      ),
-
-      // Barra inferior vacía con fondo verde
-      bottomNavigationBar: BottomAppBar(
-        color: primaryColor,
-        child: const SizedBox(height: 50),
       ),
     );
   }

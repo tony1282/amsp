@@ -895,28 +895,63 @@ void _mostrarOpcionesFamilia() {
 //
 void _mostrarFormularioAgregar(BuildContext context) {
   // Controladores para inputs de nombre y número
+  final theme = Theme.of(context);
+  final greenColor = theme.primaryColor;
   final _nombreController = TextEditingController();
   final _numeroController = TextEditingController();
   final userId = FirebaseAuth.instance.currentUser?.uid;
+  
 
   // Mostrar diálogo para agregar contacto
   showDialog(
+    
     context: context,
     builder: (_) => AlertDialog(
-      title: const Text("Agregar Contacto"),
+      backgroundColor: greenColor, // Fondo verde
+      title: const Text("Agregar Contacto", style: TextStyle(color: Colors.white)),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          TextField(controller: _nombreController, decoration: const InputDecoration(labelText: "Nombre")),
-          TextField(controller: _numeroController, decoration: const InputDecoration(labelText: "Número")),
+          TextField(
+            controller: _nombreController,
+            decoration: const InputDecoration(
+              labelText: "Nombre",
+              labelStyle: TextStyle(color: Colors.white70),
+              enabledBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Colors.white70),
+              ),
+              focusedBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Colors.white),
+              ),
+            ),
+            style: const TextStyle(color: Colors.white),
+          ),
+          TextField(
+            controller: _numeroController,
+            decoration: const InputDecoration(
+              labelText: "Número",
+              labelStyle: TextStyle(color: Colors.white70),
+              enabledBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Colors.white70),
+              ),
+              focusedBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Colors.white),
+              ),
+            ),
+            style: const TextStyle(color: Colors.white),
+          ),
         ],
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text("Cancelar"),
+          child: const Text("Cancelar", style: TextStyle(color: Colors.white)),
         ),
         ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.white, // Botón blanco
+            foregroundColor: greenColor, // Texto verde
+          ),
           onPressed: () async {
             final nombre = _nombreController.text.trim();
             final numero = _numeroController.text.trim();
@@ -946,28 +981,61 @@ void _mostrarFormularioAgregar(BuildContext context) {
 //
 void _editarContacto(BuildContext context, String id, String nombreActual, String numeroActual) {
   // Controladores inicializados con datos actuales del contacto
+  final theme = Theme.of(context);
+  final greenColor = theme.primaryColor;
   final _nombreController = TextEditingController(text: nombreActual);
   final _numeroController = TextEditingController(text: numeroActual);
   final userId = FirebaseAuth.instance.currentUser?.uid;
 
   // Mostrar diálogo para editar contacto
-  showDialog(
+showDialog(
     context: context,
     builder: (_) => AlertDialog(
-      title: const Text("Editar Contacto"),
+      backgroundColor: greenColor, // Fondo verde
+      title: const Text("Editar Contacto", style: TextStyle(color: Colors.white)),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          TextField(controller: _nombreController, decoration: const InputDecoration(labelText: "Nombre")),
-          TextField(controller: _numeroController, decoration: const InputDecoration(labelText: "Número")),
+          TextField(
+            controller: _nombreController,
+            decoration: const InputDecoration(
+              labelText: "Nombre",
+              labelStyle: TextStyle(color: Colors.white70),
+              enabledBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Colors.white70),
+              ),
+              focusedBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Colors.white),
+              ),
+            ),
+            style: const TextStyle(color: Colors.white),
+          ),
+          TextField(
+            controller: _numeroController,
+            decoration: const InputDecoration(
+              labelText: "Número",
+              labelStyle: TextStyle(color: Colors.white70),
+              enabledBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Colors.white70),
+              ),
+              focusedBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Colors.white),
+              ),
+            ),
+            style: const TextStyle(color: Colors.white),
+          ),
         ],
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text("Cancelar"),
+          child: const Text("Cancelar", style: TextStyle(color: Colors.white)),
         ),
         ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.white, // Botón blanco
+            foregroundColor: greenColor, // Texto verde
+          ),
           onPressed: () async {
             // Actualizar contacto en Firestore
             await FirebaseFirestore.instance
@@ -1030,15 +1098,20 @@ void _mostrarModalReporteHistorico(BuildContext context) {
   final user = FirebaseAuth.instance.currentUser;
 
   // Mostrar un modal bottom sheet para capturar un nuevo reporte histórico
-  showModalBottomSheet(
-    context: context,
-    isScrollControlled: true, // Permite que el modal se ajuste con el teclado
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
-    ),
-    builder: (context) {
-      final mediaQuery = MediaQuery.of(context);
-      return Padding(
+showModalBottomSheet(
+  context: context,
+  isScrollControlled: true, // Permite que el modal se ajuste con el teclado
+  shape: const RoundedRectangleBorder(
+    borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+  ),
+  builder: (context) {
+    final mediaQuery = MediaQuery.of(context);
+    final theme = Theme.of(context);
+    final greenColor = theme.primaryColor;
+    final orangeColor = theme.colorScheme.secondary;
+    return Container(
+      color: greenColor, // Fondo verde para todo el modal
+      child: Padding(
         // Ajustar padding inferior para evitar solapamiento con teclado y dar espacio
         padding: EdgeInsets.only(
           bottom: mediaQuery.viewInsets.bottom + 20,
@@ -1050,16 +1123,26 @@ void _mostrarModalReporteHistorico(BuildContext context) {
           mainAxisSize: MainAxisSize.min, // Ajustar tamaño vertical al contenido
           children: [
             Text(
-              'Nuevo reporte histórico',
-              style: Theme.of(context).textTheme.headlineSmall,
+            'Reporte',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
             ),
+          ),
             const SizedBox(height: 15),
             // Campo de texto para descripción del reporte
             TextField(
               controller: descripcionController,
               maxLines: 5,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: Colors.white, // fondo blanco para el TextField
+                enabledBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: orangeColor), // borde naranja
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: orangeColor, width: 2), // borde naranja más grueso al enfocar
+                ),
                 labelText: 'Descripción',
                 hintText: 'Escribe aquí la descripción del reporte...',
               ),
@@ -1067,6 +1150,9 @@ void _mostrarModalReporteHistorico(BuildContext context) {
             const SizedBox(height: 15),
             // Botón para guardar el reporte
             ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white, // fondo blanco
+              ),
               onPressed: () async {
                 final descripcion = descripcionController.text.trim();
 
@@ -1141,13 +1227,17 @@ void _mostrarModalReporteHistorico(BuildContext context) {
                   const SnackBar(content: Text('Reporte histórico guardado')),
                 );
               },
-              child: const Text('Guardar reporte'),
+              child: Text(
+                'Guardar reporte',
+                style: TextStyle(color: greenColor), // texto verde
+              ),
             ),
           ],
         ),
-      );
-    },
-  );
+      ),
+    );
+  },
+);
 }
 //
 
@@ -1407,8 +1497,8 @@ Widget build(BuildContext context) {
 
         // Botón de reporte histórico abajo a la izquierda
         Positioned(
-          bottom: 35,
-          left: 20,
+          bottom: 37,
+          left: 25,
           child: Container(
             decoration: BoxDecoration(
               boxShadow: [
@@ -1447,7 +1537,7 @@ Widget build(BuildContext context) {
     // Botón flotante SOS abajo a la derecha
     floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     floatingActionButton: Padding(
-      padding: const EdgeInsets.only(bottom: 20, right: 20),
+      padding: const EdgeInsets.only(bottom: 20, right: 15),
       child: Container(
         decoration: BoxDecoration(
           boxShadow: [

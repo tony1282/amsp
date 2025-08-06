@@ -58,61 +58,87 @@ class _UserScreenConState extends State<UserScreenCon> {
 
   // Función para editar nombre o teléfono del usuario
   Future<void> _editarCampo({required String campo}) async {
-    String valorActual = campo == 'name' ? (_nombre ?? '') : (_telefono ?? '');
-    final controller = TextEditingController(text: valorActual);
+  String valorActual = campo == 'name' ? (_nombre ?? '') : (_telefono ?? '');
+  final controller = TextEditingController(text: valorActual);
 
-    final resultado = await showDialog<String>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('Editar ${campo == 'name' ? 'Nombre' : 'Teléfono'}'),
-          content: TextField(
-            controller: controller,
-            keyboardType: campo == 'phone' ? TextInputType.phone : TextInputType.text,
-            decoration: InputDecoration(
-              labelText: campo == 'name' ? 'Nombre' : 'Teléfono',
-              border: const OutlineInputBorder(),
+  final resultado = await showDialog<String>(
+    context: context,
+    builder: (context) {
+      final theme = Theme.of(context);
+      final primaryColor = theme.primaryColor; // para el verde
+
+      return AlertDialog(
+        backgroundColor: primaryColor, // fondo verde
+        title: Text(
+          'Editar ${campo == 'name' ? 'Nombre' : 'Teléfono'}',
+          style: const TextStyle(color: Colors.white),
+        ),
+        content: TextField(
+          controller: controller,
+          keyboardType:
+              campo == 'phone' ? TextInputType.phone : TextInputType.text,
+          style: const TextStyle(color: Colors.white), // texto blanco
+          decoration: InputDecoration(
+            labelText: campo == 'name' ? 'Nombre' : 'Teléfono',
+            labelStyle: const TextStyle(color: Colors.white70),
+            enabledBorder: OutlineInputBorder(
+              borderSide: BorderSide(color: Colors.white70),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderSide: BorderSide(color: Colors.white),
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context), // Botón cancelar
-              child: const Text('Cancelar'),
+          cursorColor: Colors.white,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Cancelar',
+              style: TextStyle(color: Colors.white),
             ),
-            ElevatedButton(
-              onPressed: () {
-                if (controller.text.trim().isEmpty) return;
-                Navigator.pop(context, controller.text.trim()); // Guarda y cierra
-              },
-              child: const Text('Guardar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white, // botón blanco
+              foregroundColor: primaryColor, // texto verde
             ),
-          ],
-        );
-      },
-    );
+            onPressed: () {
+              if (controller.text.trim().isEmpty) return;
+              Navigator.pop(context, controller.text.trim());
+            },
+            child: Text(
+              'Guardar',
+              style: TextStyle(color: primaryColor),
+            ),
+          ),
+        ],
+      );
+    },
+  );
 
-    if (resultado != null) {
-      final user = _auth.currentUser;
-      if (user != null) {
-        // Actualiza el campo en Firestore
-        await _firestore.collection('users').doc(user.uid).set(
-          {campo: resultado},
-          SetOptions(merge: true),
-        );
+  if (resultado != null) {
+    final user = _auth.currentUser;
+    if (user != null) {
+      await _firestore.collection('users').doc(user.uid).set(
+        {campo: resultado},
+        SetOptions(merge: true),
+      );
 
-        // Actualiza la interfaz local
-        setState(() {
-          if (campo == 'name') {
-            _nombre = resultado;
-          } else if (campo == 'phone') {
-            _telefono = resultado;
-          }
-        });
-      }
+      setState(() {
+        if (campo == 'name') {
+          _nombre = resultado;
+        } else if (campo == 'phone') {
+          _telefono = resultado;
+        }
+      });
     }
   }
+}
 
-  // Widget personalizado para mostrar la información editable del usuario
+
+  // Widget personalizado para mostrar la información editable del usuario,
+  // con icono de editar al final dentro del container para campos editables
   Widget buildInfoBox(String label, String value, ThemeData theme,
       {VoidCallback? onEdit}) {
     return Row(
@@ -130,33 +156,41 @@ class _UserScreenConState extends State<UserScreenCon> {
                 ),
               ),
               const SizedBox(height: 5),
-              Container(
-                width: double.infinity,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(10),
-                  border:
-                      Border.all(color: theme.colorScheme.secondary, width: 1),
-                ),
-                child: Text(
-                  value,
-                  style: const TextStyle(color: Colors.black),
+              GestureDetector(
+                onTap: onEdit,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: theme.colorScheme.secondary, width: 1),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          value,
+                          style: const TextStyle(color: Colors.black),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (onEdit != null)
+                        const Icon(
+                          Icons.edit,
+                          size: 20,
+                          color: Colors.grey,
+                        ),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 15),
             ],
           ),
         ),
-        if (onEdit != null)
-          Padding(
-            padding: const EdgeInsets.only(left: 8, top: 18),
-            child: IconButton(
-              icon: const Icon(Icons.edit, color: Colors.white),
-              onPressed: onEdit, // Llama a la función de editar
-            ),
-          ),
+        // No mostramos icono aparte
       ],
     );
   }
@@ -182,7 +216,7 @@ class _UserScreenConState extends State<UserScreenCon> {
         ),
       ),
       body: _cargando
-          ? const Center(child: CircularProgressIndicator()) // Indicador de carga
+          ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 40),
               child: Column(
@@ -225,7 +259,7 @@ class _UserScreenConState extends State<UserScreenCon> {
                           ),
                           const SizedBox(height: 20),
                           ElevatedButton.icon(
-                            onPressed: _cerrarSesion, // Botón cerrar sesión
+                            onPressed: _cerrarSesion,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: secondaryColor,
                               foregroundColor: Colors.white,

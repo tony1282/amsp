@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 class AcercaDeScreen extends StatelessWidget {
   const AcercaDeScreen({super.key});
+
   static const Color backgroundColor = Color(0xFF248448);
   static const Color orangeColor = Color(0xFFF47405);
 
@@ -20,9 +21,16 @@ class AcercaDeScreen extends StatelessWidget {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            _buildModalButton(context, 'Versión de la app', 'Versión 1.0.0'),
-            _buildModalButton(context, 'Desarrolladores', 'Creado por el equipo AMSP'),
-            _buildModalButton(context, 'Licencia', 'Todos los derechos reservados © 2025'),
+
+            // Botones con modales
+            _buildModalButton(context, 'Términos de uso', '''
+Términos de uso
+
+Al descargar, instalar y utilizar esta aplicación móvil de seguridad personal, el usuario acepta cumplir con los siguientes términos y condiciones. Si el usuario no está de acuerdo con alguno de estos términos, deberá abstenerse de utilizar la aplicación.
+            '''),
+            _buildModalButton(context, 'Nosotros', '''
+Somos un equipo comprometido con la seguridad y el bienestar de las personas. Nuestra aplicación móvil nace con el propósito de ofrecer una herramienta confiable y accesible que permita a los usuarios protegerse, comunicarse y reaccionar rápidamente en situaciones de emergencia.
+            '''),
           ],
         ),
       ),
@@ -45,12 +53,30 @@ class AcercaDeScreen extends StatelessWidget {
           showDialog(
             context: context,
             builder: (_) => AlertDialog(
-              title: Text(titulo),
-              content: Text(contenido),
+              backgroundColor: orangeColor,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              title: Text(
+                titulo,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              content: Text(
+                contenido,
+                style: const TextStyle(
+                  color: Colors.white,
+                ),
+              ),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('Cerrar'),
+                  child: const Text(
+                    'Cerrar',
+                    style: TextStyle(color: Colors.white),
+                  ),
                 ),
               ],
             ),
