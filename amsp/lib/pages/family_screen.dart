@@ -1,3 +1,4 @@
+import 'dart:async'; 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -18,41 +19,92 @@ class _FamilyScreenState extends State<FamilyScreen> {
 
   static const Color backgroundColor = Color(0xFF248448);
 
+  // Suscripción para normalizar nombres en BD
+  StreamSubscription<QuerySnapshot>? _circulosNombreSubscription;
+
   @override
   void initState() {
     super.initState();
     uid = _auth.currentUser!.uid;
+
+    _iniciarNormalizadorNombresCirculos();
   }
 
-  Future<List<QueryDocumentSnapshot>> _getCirculosCreados() async {
-    final snapshot = await _firestore
-        .collection('circulos')
-        .where('creador', isEqualTo: uid)
-        .get();
-    return snapshot.docs;
+  @override
+  void dispose() {
+    _circulosNombreSubscription?.cancel();
+    super.dispose();
   }
 
-Future<List<QueryDocumentSnapshot>> _getCirculosUnido() async {
-  final todosLosCirculos = await _firestore
-      .collection('circulos')
-      .where('creador', isNotEqualTo: uid) // <-- Excluye los que creó
-      .get();
+  String _capitalizarCadaPalabra(String texto) {
+    return texto.trim().split(RegExp(r'\s+')).map((palabra) {
+      if (palabra.isEmpty) return '';
+      return palabra[0].toUpperCase() + palabra.substring(1).toLowerCase();
+    }).join(' ');
+  }
 
-  List<QueryDocumentSnapshot> unidos = [];
+  void _iniciarNormalizadorNombresCirculos() {
+    try {
+      _circulosNombreSubscription = _firestore.collection('circulos').snapshots().listen(
+        (snapshot) {
+          for (var change in snapshot.docChanges) {
+            if (change.type == DocumentChangeType.added ||
+                change.type == DocumentChangeType.modified) {
+              final data = change.doc.data();
+              if (data == null) continue;
+              final nombreRaw = (data['nombre'] as String?) ?? '';
+              final nombreCap = _capitalizarCadaPalabra(nombreRaw);
 
-  for (var circulo in todosLosCirculos.docs) {
-    final data = circulo.data() as Map<String, dynamic>;
-    final miembros = data['miembros'] as List<dynamic>? ?? [];
-
-    final estaEnCirculo = miembros.any((miembro) => miembro['uid'] == uid);
-
-    if (estaEnCirculo) {
-      unidos.add(circulo);
+              if (nombreRaw.isNotEmpty && nombreRaw != nombreCap) {
+                change.doc.reference.update({'nombre': nombreCap}).catchError((e) {
+                  print('Error actualizando nombre capitalizado: $e');
+                });
+              }
+            }
+          }
+        },
+        onError: (e) {
+          print('Error en listener normalizador nombres: $e');
+        },
+      );
+    } catch (e) {
+      print('Excepción al iniciar normalizador de nombres: $e');
     }
   }
 
-  return unidos;
-}
+  Future<void> _guardarCirculo(String nombre, String tipo) async {
+    final nombreFormateado = _capitalizarCadaPalabra(nombre);
+    await _firestore.collection('circulos').add({
+      'nombre': nombreFormateado,
+      'tipo': tipo,
+      'creador': uid,
+      'miembros': [],
+    });
+  }
+
+  // Stream para círculos creados por el usuario
+  Stream<List<QueryDocumentSnapshot>> _streamCirculosCreados() {
+    return _firestore
+      .collection('circulos')
+      .where('creador', isEqualTo: uid)
+      .snapshots()
+      .map((snapshot) => snapshot.docs);
+  }
+
+  // Stream para círculos donde es miembro (pero no creador)
+  Stream<List<QueryDocumentSnapshot>> _streamCirculosUnidos() {
+    return _firestore
+      .collection('circulos')
+      .where('creador', isNotEqualTo: uid)
+      .snapshots()
+      .map((snapshot) {
+        return snapshot.docs.where((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          final miembros = data['miembros'] as List<dynamic>? ?? [];
+          return miembros.any((miembro) => miembro['uid'] == uid);
+        }).toList();
+      });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -66,131 +118,143 @@ Future<List<QueryDocumentSnapshot>> _getCirculosUnido() async {
         backgroundColor: greenColor,
         foregroundColor: Colors.white,
       ),
-      body: FutureBuilder<List<List<QueryDocumentSnapshot>>>(
-        future: Future.wait([
-          _getCirculosCreados(),
-          _getCirculosUnido(),
-        ]),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+      body: StreamBuilder<List<QueryDocumentSnapshot>>(
+        stream: _streamCirculosCreados(),
+        builder: (context, snapshotCreados) {
+          if (snapshotCreados.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator(color: Colors.green));
           }
-
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
+          if (snapshotCreados.hasError) {
+            return Center(child: Text('Error: ${snapshotCreados.error}'));
           }
 
-          final creados = snapshot.data![0];
-          final unidos = snapshot.data![1];
+          final creados = snapshotCreados.data ?? [];
 
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    color: backgroundColor,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Círculos que creaste:',
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
+          return StreamBuilder<List<QueryDocumentSnapshot>>(
+            stream: _streamCirculosUnidos(),
+            builder: (context, snapshotUnidos) {
+              if (snapshotUnidos.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator(color: Colors.green));
+              }
+              if (snapshotUnidos.hasError) {
+                return Center(child: Text('Error: ${snapshotUnidos.error}'));
+              }
+
+              final unidos = snapshotUnidos.data ?? [];
+
+              return SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        color: backgroundColor,
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      const SizedBox(height: 10),
-                      if (creados.isEmpty)
-                        const Text('No has creado ningún círculo.', style: TextStyle(color: Colors.white)),
-                      ...creados.map((doc) {
-                        final data = doc.data() as Map<String, dynamic>;
-                        final circleId = doc.id;
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 6),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Círculos que creaste:',
+                            style: theme.textTheme.headlineSmall?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                          elevation: 0, // SIN sombra
-                          child: ListTile(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => CirculoDetalleScreen(
-                                    circleId: circleId,
-                                    esCreador: true,
-                                  ),
-                                ),
-                              );
-                            },
-                            title: Text(data['nombre'] ?? 'Sin nombre'),
-                            subtitle: Text(data['tipo'] ?? ''),
-                            leading: Icon(Icons.family_restroom, color: greenColor),
-                          ),
-                        );
-                      }),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 30),
-
-                Container(
-                  decoration: BoxDecoration(
-                    color: backgroundColor,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Círculos donde eres miembro:',
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
+                          const SizedBox(height: 10),
+                          if (creados.isEmpty)
+                            const Text('No has creado ningún círculo.',
+                                style: TextStyle(color: Colors.white)),
+                          ...creados.map((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            final circleId = doc.id;
+                            return Card(
+                              margin: const EdgeInsets.symmetric(vertical: 6),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              elevation: 0,
+                              child: ListTile(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => CirculoDetalleScreen(
+                                        circleId: circleId,
+                                        esCreador: true,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                title: Text(_capitalizarCadaPalabra(
+                                    data['nombre'] ?? 'Sin nombre')),
+                                subtitle: Text(data['tipo'] ?? ''),
+                                leading:
+                                    Icon(Icons.family_restroom, color: greenColor),
+                              ),
+                            );
+                          }),
+                        ],
                       ),
-                      const SizedBox(height: 10),
-                      if (unidos.isEmpty)
-                        const Text('No perteneces a ningún círculo.', style: TextStyle(color: Colors.white)),
-                      ...unidos.map((doc) {
-                        final data = doc.data() as Map<String, dynamic>;
-                        final circleId = doc.id;
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 6),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
+                    ),
+                    const SizedBox(height: 30),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: backgroundColor,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Círculos donde eres miembro:',
+                            style: theme.textTheme.headlineSmall?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                          elevation: 0, // SIN sombra
-                          child: ListTile(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => CirculoDetalleScreen(
-                                    circleId: circleId,
-                                    esCreador: false,
-                                  ),
-                                ),
-                              );
-                            },
-                            title: Text(data['nombre'] ?? 'Sin nombre'),
-                            subtitle: Text(data['tipo'] ?? ''),
-                            leading: Icon(Icons.group, color: greenColor),
-                          ),
-                        );
-                      }),
-                    ],
-                  ),
+                          const SizedBox(height: 10),
+                          if (unidos.isEmpty)
+                            const Text('No perteneces a ningún círculo.',
+                                style: TextStyle(color: Colors.white)),
+                          ...unidos.map((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            final circleId = doc.id;
+                            return Card(
+                              margin: const EdgeInsets.symmetric(vertical: 6),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              elevation: 0,
+                              child: ListTile(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => CirculoDetalleScreen(
+                                        circleId: circleId,
+                                        esCreador: false,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                title: Text(_capitalizarCadaPalabra(
+                                    data['nombre'] ?? 'Sin nombre')),
+                                subtitle: Text(data['tipo'] ?? ''),
+                                leading: Icon(Icons.group, color: greenColor),
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              );
+            },
           );
         },
       ),

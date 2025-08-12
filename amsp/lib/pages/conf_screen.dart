@@ -74,7 +74,7 @@ class ConfScreen extends StatelessWidget {
     );
   }
 
-  // 🔁 Versión corregida que recibe `context`
+
   List<Widget> _buildButtonList(BuildContext context, List<String> items) {
     return items.map((text) {
       return Container(

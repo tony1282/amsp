@@ -98,7 +98,6 @@ class _CrearCirculoScreenState extends State<CrearCirculoScreen> {
         'name': userData?['name'] ?? 'Sin nombre',
         'phone': userData?['phone'] ?? 'desconocido',
         'email': userData?['email'] ?? 'sin correo',
-        'rol': userData?['rol'] ?? 'admin',
       };
 
       final nuevoCirculo = {

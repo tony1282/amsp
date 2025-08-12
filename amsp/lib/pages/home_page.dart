@@ -13,6 +13,8 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:async/async.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+import 'package:firebase_database/firebase_database.dart';
+
 
 import 'conf_screen.dart';
 import 'family_screen.dart';
@@ -58,6 +60,7 @@ class _HomePageState extends State<HomePage> {
   bool _cargandoZonas = false;    // Estado para carga de zonas de riesgo
   bool _modalVisible = false;     // Control para modales
   bool _mostrarModalAlerta = false; // Control para mostrar modal SOS
+  bool _dialogoAbierto = false; // para evitar que se abran muchos alert dialog
   //
 
   //
@@ -65,14 +68,24 @@ class _HomePageState extends State<HomePage> {
   StreamSubscription? _accelerometerSubscription; // Suscripción para sensor acelerómetro
   //
 
+//
+   final DatabaseReference _ref = FirebaseDatabase.instance.ref();
+//
+
   //
   Map<String, dynamic>? _geojsonZonasRiesgo;  // GeoJSON para zonas de riesgo
+  String? _ultimoMensajeMostrado;
   //
 
   //
   String? circuloSeleccionadoId;    // ID del círculo seleccionado para mostrar info
   String? circuloSeleccionadoNombre; // Nombre del círculo seleccionado
   //
+
+
+//
+String? _ultimoMensajeIot;
+//
 
   //
   Map<String, StreamSubscription<DocumentSnapshot>> miembrosListeners = {}; // Listeners por miembro para ubicación
@@ -97,37 +110,45 @@ class _HomePageState extends State<HomePage> {
   List<String> codigosRiesgo = [];  // Lista de códigos para filtrar zonas de riesgo
   //
 
-  //
-  @override
-  void initState() {
-    super.initState();
-    _escucharAlertasEnTiempoReal(); // Inicia la escucha de alertas SOS en tiempo real
-    LocationService.startLocationUpdates(); // Inicia actualización de ubicación en background
-    cargarDatosUsuario(); // Carga datos del usuario actual
+@override
+void initState() {
+  super.initState();
 
-    // Escucha los eventos del acelerómetro para detectar sacudidas fuertes
-    _accelerometerSubscription = accelerometerEvents.listen((event) {
-      // Calculamos la magnitud de la aceleración con sqrt()
-      final double aceleracion = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
+  // Primero obtener el mensaje actual sin mostrar diálogo
+  _ref.child('mensaje').once().then((event) {
+    final data = event.snapshot.value;
+    if (data != null && data.toString().isNotEmpty) {
+      _ultimoMensajeMostrado = data.toString(); // Guardamos el mensaje para no mostrar diálogo al iniciar
+      setState(() {
+        _ultimoMensajeIot = _ultimoMensajeMostrado;
+      });
+    }
 
-      // Si la aceleración supera el umbral (30)
-      if (aceleracion > 30) {
-        final ahora = DateTime.now();
-        // Controlar que no se detecten sacudidas muy seguidas (mínimo 10 segundos)
-        if (ahora.difference(_ultimaSacudida).inSeconds > 10) {
-          _ultimaSacudida = ahora;
+    // Luego iniciar la escucha continua
+    _escucharMensajesIot();
+  });
 
-          // Si no hay modal SOS abierto, mostrarlo
-          if (!_mostrarModalAlerta) {
-            _showSosModal(context); // Mostrar modal SOS al detectar sacudida fuerte
-          }
+  _escucharAlertasEnTiempoReal(); // Inicia la escucha de alertas SOS en tiempo real
+  LocationService.startLocationUpdates(); // Inicia actualización de ubicación en background
+  cargarDatosUsuario(); // Carga datos del usuario actual
+
+  // Escuchar acelerómetro para detectar sacudidas fuertes
+  _accelerometerSubscription = accelerometerEvents.listen((event) {
+    final double aceleracion = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
+
+    if (aceleracion > 30) {
+      final ahora = DateTime.now();
+      if (ahora.difference(_ultimaSacudida).inSeconds > 10) {
+        _ultimaSacudida = ahora;
+        if (!_mostrarModalAlerta) {
+          _showSosModal(context);
         }
       }
-    });
+    }
+  });
 
-    _setupPositionTraking(); // Configura seguimiento continuo de posición (función no incluida aquí)
-  }
-  //
+  _setupPositionTraking();
+}
 
   //
   @override
@@ -589,9 +610,75 @@ Future<void> _enviarAlerta() async {
         .collection('alertas')
         .add(alertaData);
 
-    // Aquí se removió el código de enviar notificaciones push
+
   }
 }
+
+
+
+
+//
+void _escucharMensajesIot() {
+  _ref.child('mensaje').onValue.listen((event) {
+    final data = event.snapshot.value;
+    if (data != null && data.toString().isNotEmpty) {
+      final nuevoMensaje = data.toString();
+
+      // Actualizamos variable del último mensaje recibido siempre
+      setState(() {
+        _ultimoMensajeIot = nuevoMensaje;
+      });
+
+      // Mostrar diálogo solo si el mensaje es diferente al último mostrado
+      if (_ultimoMensajeMostrado != nuevoMensaje) {
+        _mostrarDialogoMensajeIot(nuevoMensaje);
+        _ultimoMensajeMostrado = nuevoMensaje;  // Guardamos el mensaje que mostramos
+      }
+    }
+  });
+}
+//
+
+//
+
+  void _mostrarDialogoMensajeIot(String mensaje) async {
+  if (_dialogoAbierto) return; // Si ya hay un diálogo abierto, no abrir otro
+  _dialogoAbierto = true;
+
+  await showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      backgroundColor: Colors.red.shade700,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: const Text(
+        'Alerta IoT',
+        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        textAlign: TextAlign.center,
+      ),
+      content: Text(
+        mensaje,
+        style: const TextStyle(color: Colors.white, fontSize: 18),
+        textAlign: TextAlign.center,
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text(
+            'Cerrar',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+        )
+      ],
+    ),
+  );
+
+  _dialogoAbierto = false; // Se cerró el diálogo, puede abrirse otro ahora
+}
+
+
+//
+
+
 
 
 
@@ -1381,6 +1468,7 @@ Widget build(BuildContext context) {
         );
       }, contrastColor),
       actions: [
+        
         Stack(
           children: [
           _iconButton(
