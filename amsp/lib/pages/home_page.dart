@@ -553,65 +553,59 @@ Future<void> _enviarAlerta() async {
 
   gl.Position? posicion;
   try {
-    // Verificar si el servicio GPS está activo y pedir permisos si es necesario
     bool servicioActivo = await gl.Geolocator.isLocationServiceEnabled();
     if (!servicioActivo) {
       print("GPS no está activo");
-      posicion = null;
     } else {
       gl.LocationPermission permiso = await gl.Geolocator.checkPermission();
       if (permiso == gl.LocationPermission.denied || permiso == gl.LocationPermission.deniedForever) {
         permiso = await gl.Geolocator.requestPermission();
-        if (permiso == gl.LocationPermission.denied || permiso == gl.LocationPermission.deniedForever) {
-          print("Permiso de ubicación denegado");
-          posicion = null;
-        }
       }
       if (permiso != gl.LocationPermission.denied && permiso != gl.LocationPermission.deniedForever) {
-        // Obtener la posición actual con alta precisión
         posicion = await gl.Geolocator.getCurrentPosition(desiredAccuracy: gl.LocationAccuracy.high);
       }
     }
   } catch (e) {
     print("Error al obtener ubicación: $e");
-    posicion = null;
   }
 
-  // Obtener los círculos a los que pertenece el usuario para enviar alerta en cada uno
+  // Obtener los círculos del usuario
   final circulos = await FirebaseFirestore.instance
       .collection('circulos')
       .where('miembrosUids', arrayContains: uid)
       .get();
 
-  for (var doc in circulos.docs) {
-    final circleId = doc.id;
+  WriteBatch batch = FirebaseFirestore.instance.batch();
 
-    // Construir datos de la alerta
-    Map<String, dynamic> alertaData = {
-      'mensaje': '¡$nombre ha enviado una alerta SOS!',
-      'emisorid': uid,
-      'name': nombre,
-      'phone': phone,
-      'timestamp': FieldValue.serverTimestamp(),
+for (var doc in circulos.docs) {
+  final circleId = doc.id;
+
+  // Obtén la lista de UIDs de los miembros del círculo
+  final miembrosUids = List<String>.from(doc.data()['miembrosUids'] ?? []);
+
+  Map<String, dynamic> alertaData = {
+    'circleId': circleId, // IMPORTANTE para identificar el círculo
+    'mensaje': '¡$nombre ha enviado una alerta SOS!',
+    'emisorId': uid,
+    'name': nombre,
+    'phone': phone,
+    'timestamp': FieldValue.serverTimestamp(),
+    'destinatarios': miembrosUids,  // <<-- aquí agregas la lista para filtrar rápido
+  };
+
+  if (posicion != null) {
+    alertaData['ubicacion'] = {
+      'lat': posicion.latitude,
+      'lng': posicion.longitude,
     };
-
-    // Añadir ubicación si está disponible
-    if (posicion != null) {
-      alertaData['ubicacion'] = {
-        'lat': posicion.latitude,
-        'lng': posicion.longitude,
-      };
-    }
-
-    // Guardar la alerta en la subcolección 'alertas' del círculo
-    await FirebaseFirestore.instance
-        .collection('circulos')
-        .doc(circleId)
-        .collection('alertas')
-        .add(alertaData);
-
-
   }
+
+  // Guardar en colección global
+  final alertaRef = FirebaseFirestore.instance.collection('alertasCirculos').doc();
+  batch.set(alertaRef, alertaData);
+}
+
+  await batch.commit();
 }
 
 
@@ -683,26 +677,50 @@ void _escucharMensajesIot() {
 
 
 
-//
 void _escucharUbicacionesDelCirculo(String circleId) async {
-  // Limpiar escuchas y marcadores anteriores para evitar duplicados
+  // Limpiar escuchas y marcadores previos
   await _limpiarEscuchasYMarcadores();
   print("Escuchando ubicaciones para círculo: $circleId");
 
-  // Obtener documento del círculo por ID
+  // Obtener documento del círculo
   final circleDoc = await FirebaseFirestore.instance.collection('circulos').doc(circleId).get();
   if (!circleDoc.exists) return;
 
-  // Obtener lista de miembros del círculo
+  // Obtener lista de miembros (UIDs o mapas con datos)
   final miembros = circleDoc.data()?['miembros'] as List<dynamic>? ?? [];
   print('Miembros del círculo ($circleId): $miembros');
 
-  // Recorrer cada miembro para escuchar su ubicación en tiempo real
+  // Función auxiliar para crear o actualizar marcador
+  Future<void> _actualizarMarcador(String uid, double lat, double lng, String nombre) async {
+    final posicion = mp.Point(coordinates: mp.Position(lng, lat));
+    try {
+      if (marcadores.containsKey(uid)) {
+        await pointAnnotationManager!.delete(marcadores[uid]!);
+        marcadores.remove(uid);
+      }
+      final nuevoMarcador = await pointAnnotationManager!.create(
+        mp.PointAnnotationOptions(
+          geometry: posicion,
+          iconImage: "marker",
+          iconSize: 4,
+          textField: nombre,
+          textOffset: [0, 3.5],
+          textSize: 13,
+          textHaloWidth: 1.0,
+        ),
+      );
+      marcadores[uid] = nuevoMarcador;
+      print('✅ Marcador actualizado para $uid ($lat, $lng)');
+    } catch (e) {
+      print("❌ Error al crear marcador para $uid: $e");
+    }
+  }
+
+  // Escuchar ubicación de cada miembro sin bloquear el loop con await
   for (final member in miembros) {
     String uid;
     String name = 'Sin nombre';
 
-    // Determinar formato del miembro (UID solo o mapa con datos)
     if (member is String) {
       uid = member;
       print("🧩 Miembro con solo UID: $uid");
@@ -715,55 +733,26 @@ void _escucharUbicacionesDelCirculo(String circleId) async {
       continue;
     }
 
-    // Escuchar cambios en la ubicación de cada miembro
+    // Guardar la suscripción, que se maneja fuera con _limpiarEscuchasYMarcadores
     final sub = FirebaseFirestore.instance
         .collection('ubicaciones')
         .doc(uid)
         .snapshots()
-        .listen((snapshot) async {
+        .listen((snapshot) {
       if (!snapshot.exists) return;
-
       final data = snapshot.data();
       final lat = data?['lat'] ?? data?['latitude'];
       final lng = data?['lng'] ?? data?['longitude'];
       if (lat == null || lng == null) return;
 
-      final nuevaPosicion = mp.Point(coordinates: mp.Position(lng, lat));
-
-      try {
-        // Si ya existe marcador, eliminarlo antes de crear uno nuevo
-        if (marcadores.containsKey(uid)) {
-          await pointAnnotationManager!.delete(marcadores[uid]!);
-          marcadores.remove(uid);
-        }
-
-        // Crear nuevo marcador con la posición actual y nombre del miembro
-        final nuevoMarcador = await pointAnnotationManager!.create(
-          mp.PointAnnotationOptions(
-            geometry: nuevaPosicion,
-            iconImage: "marker",
-            iconSize: 4,
-            textField: name,
-            textOffset: [0, 3.5],
-            textSize: 13,
-            textHaloWidth: 1.0,
-          ),
-        );
-
-        // Guardar referencia al marcador para futuras actualizaciones
-        marcadores[uid] = nuevoMarcador;
-
-        print('✅ Marcador actualizado para $uid ($lat, $lng)');
-      } catch (e) {
-        print("❌ Error al crear marcador para $uid: $e");
-      }
+      // Actualizar marcador async sin bloquear el stream
+      _actualizarMarcador(uid, lat, lng, name);
     });
 
-    // Guardar la suscripción para poder cancelarla cuando se limpie
     miembrosListeners[uid] = sub;
   }
 
-  // Agregar marcador para el usuario autenticado
+  // Agregar marcador para usuario autenticado, sin esperar (más rápido)
   final user = FirebaseAuth.instance.currentUser;
   if (user != null) {
     final uid = user.uid;
@@ -773,33 +762,12 @@ void _escucharUbicacionesDelCirculo(String circleId) async {
       final lat = data?['lat'] ?? data?['latitude'];
       final lng = data?['lng'] ?? data?['longitude'];
       if (lat != null && lng != null) {
-        final posUser = mp.Point(coordinates: mp.Position(lng, lat));
-
-        // Eliminar marcador previo si existe
-        if (marcadores.containsKey(uid)) {
-          await pointAnnotationManager!.delete(marcadores[uid]!);
-          marcadores.remove(uid);
-        }
-
-        // Crear marcador para el usuario actual con etiqueta "Tú"
-        final nuevoMarcador = await pointAnnotationManager!.create(
-          mp.PointAnnotationOptions(
-            geometry: posUser,
-            iconImage: "marker-15",
-            iconSize: 1.8,
-            textField: "Tú",
-            textOffset: [0, 1.5],
-            textSize: 14,
-            textHaloWidth: 1.5,
-          ),
-        );
-
-        marcadores[uid] = nuevoMarcador;
+        // Reutilizar la función para crear marcador de usuario
+        await _actualizarMarcador(uid, lat, lng, "Tú");
       }
     }
   }
 }
-//
 
 //
 void _abrirZonasRiesgo() async {

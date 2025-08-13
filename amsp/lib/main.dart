@@ -12,60 +12,104 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 import 'package:amsp/services/location_service.dart';
 
-// Función principal que se ejecuta al iniciar la app
+const Color kPrimaryColor = Color(0xFF248448);
+const Color kSecondaryColor = Color(0xFFFF6C00);
+
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized(); // Asegura la inicialización correcta de Flutter
-
-  await Firebase.initializeApp(); // Inicializa Firebase en la app
-  await dotenv.load(fileName: ".env"); // Carga variables de entorno desde el archivo .env
-
-  final token = dotenv.env["MAPBOX_ACCESS_TOKEN"]; // Obtiene el token de Mapbox desde variables de entorno
-  if (token == null) {
-    throw Exception("MAPBOX_ACCESS_TOKEN no encontrado"); // Si no existe token, lanza un error
-  }
-  MapboxOptions.setAccessToken(token); // Configura el token para Mapbox
-
-  LocationService.startLocationUpdates(); // Inicia la actualización continua de ubicación (stream)
-
-  runApp(const MainApp()); // Ejecuta la app con el widget principal MainApp
-  print('Conexión a Firebase establecida'); // Mensaje en consola para confirmar conexión a Firebase
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const AppInitWrapper());
 }
 
-// Función para obtener la ubicación actual del dispositivo
-Future<gl.Position?> getCurrentLocation() async {
-  bool serviceEnabled = await gl.Geolocator.isLocationServiceEnabled(); // Verifica si el servicio de ubicación está activo
-  if (!serviceEnabled) return null; // Si no está activo, devuelve null
+/// Widget que espera la inicialización completa antes de mostrar la app principal
+class AppInitWrapper extends StatefulWidget {
+  const AppInitWrapper({super.key});
 
-  // Revisa y solicita permisos de ubicación si es necesario
-  gl.LocationPermission permission = await gl.Geolocator.checkPermission();
-  if (permission == gl.LocationPermission.denied) {
-    permission = await gl.Geolocator.requestPermission();
-    if (permission == gl.LocationPermission.denied) return null; // Si sigue negado, devuelve null
-  }
-
-  // Retorna la posición actual con alta precisión
-  return await gl.Geolocator.getCurrentPosition(
-    desiredAccuracy: gl.LocationAccuracy.high,
-  );
+  @override
+  State<AppInitWrapper> createState() => _AppInitWrapperState();
 }
 
-// Widget principal de la aplicación
+class _AppInitWrapperState extends State<AppInitWrapper> {
+  late Future<void> _initializationFuture;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializationFuture = _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    try {
+      await Firebase.initializeApp();
+      await dotenv.load(fileName: ".env");
+
+      final token = dotenv.env["MAPBOX_ACCESS_TOKEN"];
+      if (token == null) {
+        throw Exception("MAPBOX_ACCESS_TOKEN no encontrado en .env");
+      }
+      MapboxOptions.setAccessToken(token);
+
+      LocationService.startLocationUpdates();
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+      });
+      rethrow;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_error != null) {
+      // Mostrar error en pantalla si la inicialización falló
+      return MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: Text('Error al iniciar la app:\n$_error', textAlign: TextAlign.center),
+          ),
+        ),
+      );
+    }
+
+    return FutureBuilder(
+      future: _initializationFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.done) {
+          return const MainApp();
+        } else if (snapshot.hasError) {
+          return MaterialApp(
+            home: Scaffold(
+              body: Center(
+                child: Text('Error al iniciar la app:\n${snapshot.error}', textAlign: TextAlign.center),
+              ),
+            ),
+          );
+        }
+        // Mientras carga la inicialización, mostrar indicador
+        return const MaterialApp(
+          home: Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Widget principal de la aplicación
 class MainApp extends StatelessWidget {
   const MainApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      debugShowCheckedModeBanner: false, // Oculta la etiqueta de debug en la app
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        primaryColor: const Color(0xFF248448), // Color principal verde oscuro
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF248448),
-          secondary: const Color(0xFFFF6C00), // Color secundario naranja
-        ),
+        primaryColor: kPrimaryColor,
+        colorScheme: ColorScheme.fromSeed(seedColor: kPrimaryColor, secondary: kSecondaryColor),
         appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF248448), // Color del AppBar
-          foregroundColor: Colors.white, // Color del texto y iconos del AppBar
+          backgroundColor: kPrimaryColor,
+          foregroundColor: Colors.white,
           centerTitle: true,
           titleTextStyle: TextStyle(
             fontSize: 22,
@@ -75,40 +119,44 @@ class MainApp extends StatelessWidget {
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF248448), // Color de fondo botones elevados
-            foregroundColor: Colors.white, // Color del texto botones
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(6), // Bordes redondeados
-            ),
+            backgroundColor: kPrimaryColor,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
             textStyle: const TextStyle(fontSize: 14),
           ),
         ),
-        bottomAppBarTheme: const BottomAppBarTheme(
-          color: Color(0xFF248448), // Color del BottomAppBar
-        ),
-        textTheme: const TextTheme(
-          bodyMedium: TextStyle(color: Colors.black), // Color por defecto para textos del cuerpo
-        ),
+        bottomAppBarTheme: const BottomAppBarTheme(color: kPrimaryColor),
+        textTheme: const TextTheme(bodyMedium: TextStyle(color: Colors.black)),
       ),
-      home: const AuthWrapper(), // Widget que decide si mostrar pantalla de login o Home
+      home: const AuthWrapper(),
     );
   }
 }
 
-// Widget que determina si el usuario está autenticado o no
+/// Widget que decide qué pantalla mostrar según estado de autenticación
 class AuthWrapper extends StatelessWidget {
   const AuthWrapper({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser; // Obtiene el usuario autenticado actual
-
+    final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      // Si no hay usuario autenticado, muestra la pantalla de inicio de sesión
-      return  InicioSesion();
-    } else {
-      // Si el usuario está autenticado, muestra la pantalla principal (HomePage)
-      return const HomePage(circleId: null);
+      return const InicioSesion();
     }
+    return const HomePage(circleId: null);
   }
+}
+
+/// Función para obtener la ubicación actual del dispositivo
+Future<gl.Position?> getCurrentLocation() async {
+  final serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
+  if (!serviceEnabled) return null;
+
+  var permission = await gl.Geolocator.checkPermission();
+  if (permission == gl.LocationPermission.denied) {
+    permission = await gl.Geolocator.requestPermission();
+    if (permission == gl.LocationPermission.denied) return null;
+  }
+
+  return await gl.Geolocator.getCurrentPosition(desiredAccuracy: gl.LocationAccuracy.high);
 }

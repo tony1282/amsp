@@ -43,7 +43,7 @@ class LocationService {
       // Configuración específica para Android
       locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.high, // Precisión alta
-        intervalDuration: const Duration(seconds: 20), // Intervalo para recibir actualizaciones (cada 20 segundos)
+        intervalDuration: const Duration(seconds: 1), // Intervalo para recibir actualizaciones (cada 20 segundos)
         distanceFilter: 0, // Actualizar en cualquier cambio de ubicación, sin filtro de distancia mínima
         // otros parámetros específicos para Android podrían ir aquí
       );

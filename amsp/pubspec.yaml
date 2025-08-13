@@ -20,6 +20,7 @@ dependencies:
   sensors_plus: ^4.0.2
   http: ^1.4.0
   firebase_database: ^10.5.7
+  intl: ^0.20.2
 
 
 dev_dependencies:

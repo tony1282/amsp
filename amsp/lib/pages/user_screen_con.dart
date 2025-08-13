@@ -58,139 +58,147 @@ class _UserScreenConState extends State<UserScreenCon> {
 
   // Función para editar nombre o teléfono del usuario
   Future<void> _editarCampo({required String campo}) async {
-  String valorActual = campo == 'name' ? (_nombre ?? '') : (_telefono ?? '');
-  final controller = TextEditingController(text: valorActual);
+    String valorActual = campo == 'name' ? (_nombre ?? '') : (_telefono ?? '');
+    final controller = TextEditingController(text: valorActual);
 
-  final resultado = await showDialog<String>(
-    context: context,
-    builder: (context) {
-      final theme = Theme.of(context);
-      final primaryColor = theme.primaryColor; // para el verde
+    final resultado = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        final theme = Theme.of(context);
+        final primaryColor = theme.primaryColor; // para el verde
 
-      return AlertDialog(
-        backgroundColor: primaryColor, // fondo verde
-        title: Text(
-          'Editar ${campo == 'name' ? 'Nombre' : 'Teléfono'}',
-          style: const TextStyle(color: Colors.white),
-        ),
-        content: TextField(
-          controller: controller,
-          keyboardType:
-              campo == 'phone' ? TextInputType.phone : TextInputType.text,
-          style: const TextStyle(color: Colors.white), // texto blanco
-          decoration: InputDecoration(
-            labelText: campo == 'name' ? 'Nombre' : 'Teléfono',
-            labelStyle: const TextStyle(color: Colors.white70),
-            enabledBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: Colors.white70),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: Colors.white),
-            ),
+        return AlertDialog(
+          backgroundColor: primaryColor, // fondo verde
+          title: Text(
+            'Editar ${campo == 'name' ? 'Nombre' : 'Teléfono'}',
+            style: const TextStyle(color: Colors.white),
           ),
-          cursorColor: Colors.white,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text(
-              'Cancelar',
-              style: TextStyle(color: Colors.white),
+          content: TextField(
+            controller: controller,
+            keyboardType:
+                campo == 'phone' ? TextInputType.phone : TextInputType.text,
+            style: const TextStyle(color: Colors.white), // texto blanco
+            decoration: InputDecoration(
+              labelText: campo == 'name' ? 'Nombre' : 'Teléfono',
+              labelStyle: const TextStyle(color: Colors.white70),
+              enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: Colors.white70),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: Colors.white),
+              ),
             ),
+            cursorColor: Colors.white,
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white, // botón blanco
-              foregroundColor: primaryColor, // texto verde
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text(
+                'Cancelar',
+                style: TextStyle(color: Colors.white),
+              ),
             ),
-            onPressed: () {
-              if (controller.text.trim().isEmpty) return;
-              Navigator.pop(context, controller.text.trim());
-            },
-            child: Text(
-              'Guardar',
-              style: TextStyle(color: primaryColor),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white, // botón blanco
+                foregroundColor: primaryColor, // texto verde
+              ),
+              onPressed: () {
+                if (controller.text.trim().isEmpty) return;
+                Navigator.pop(context, controller.text.trim());
+              },
+              child: Text(
+                'Guardar',
+                style: TextStyle(color: primaryColor),
+              ),
             ),
-          ),
-        ],
-      );
-    },
-  );
+          ],
+        );
+      },
+    );
 
-  if (resultado != null) {
-    final user = _auth.currentUser;
-    if (user != null) {
-      await _firestore.collection('users').doc(user.uid).set(
-        {campo: resultado},
-        SetOptions(merge: true),
-      );
+    if (resultado != null) {
+      final user = _auth.currentUser;
+      if (user != null) {
+        await _firestore.collection('users').doc(user.uid).set(
+          {campo: resultado},
+          SetOptions(merge: true),
+        );
 
-      setState(() {
-        if (campo == 'name') {
-          _nombre = resultado;
-        } else if (campo == 'phone') {
-          _telefono = resultado;
-        }
-      });
+        setState(() {
+          if (campo == 'name') {
+            _nombre = resultado;
+          } else if (campo == 'phone') {
+            _telefono = resultado;
+          }
+        });
+      }
     }
   }
-}
-
 
   // Widget personalizado para mostrar la información editable del usuario,
   // con icono de editar al final dentro del container para campos editables
   Widget buildInfoBox(String label, String value, ThemeData theme,
       {VoidCallback? onEdit}) {
-    return Row(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 5),
-              GestureDetector(
-                onTap: onEdit,
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: theme.colorScheme.secondary, width: 1),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          value,
-                          style: const TextStyle(color: Colors.black),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      if (onEdit != null)
-                        const Icon(
-                          Icons.edit,
-                          size: 20,
-                          color: Colors.grey,
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 15),
-            ],
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
           ),
         ),
-        // No mostramos icono aparte
+        const SizedBox(height: 5),
+        if (onEdit != null)
+          // Para campos editables: caja blanca con texto y icono editar
+          GestureDetector(
+            onTap: onEdit,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: theme.colorScheme.secondary, width: 1),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      value,
+                      style: const TextStyle(color: Colors.black),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const Icon(
+                    Icons.edit,
+                    size: 20,
+                    color: Colors.grey,
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          // Para campo no editable (como correo): texto multilinea en container blanco
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: theme.colorScheme.secondary, width: 1),
+            ),
+            child: Text(
+              value,
+              style: const TextStyle(color: Colors.black),
+              softWrap: true,
+            ),
+          ),
+        const SizedBox(height: 15),
       ],
     );
   }
