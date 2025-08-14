@@ -16,6 +16,7 @@ import 'package:sensors_plus/sensors_plus.dart';
 import 'package:firebase_database/firebase_database.dart';
 
 
+
 import 'conf_screen.dart';
 import 'family_screen.dart';
 import 'notifications_screen.dart';
@@ -51,6 +52,7 @@ class _HomePageState extends State<HomePage> {
   // Manejadores para anotaciones (marcadores) en el mapa
   mp.PointAnnotationManager? pointAnnotationManager;
   mp.CircleAnnotationManager? circleAnnotationManager;
+  Map<String, DateTime> _ultimoUpdateMarcador = {};
   //
 
   //
@@ -103,7 +105,7 @@ String? _ultimoMensajeIot;
   //
   String? _mensajeAlerta;  // Mensaje de alerta actual
   final Set<String> _alertasMostradasIds = {};  // IDs de alertas ya mostradas para evitar repetir
-  final Set<String> _alertasMostradas = {}; // ✅ Set para alertas ya mostradas
+  final Set<String> _alertasMostradas = {}; // Set para alertas ya mostradas
   //
 
   //
@@ -113,20 +115,27 @@ String? _ultimoMensajeIot;
 @override
 void initState() {
   super.initState();
+   _escucharAlertasSmart();
 
-  // Primero obtener el mensaje actual sin mostrar diálogo
-  _ref.child('mensaje').once().then((event) {
-    final data = event.snapshot.value;
-    if (data != null && data.toString().isNotEmpty) {
-      _ultimoMensajeMostrado = data.toString(); // Guardamos el mensaje para no mostrar diálogo al iniciar
-      setState(() {
-        _ultimoMensajeIot = _ultimoMensajeMostrado;
-      });
+    _ref.child('').once().then((event) {
+    final data = event.snapshot.value as Map?;
+    if (data != null && data["mensaje"] != null) {
+      _ultimoMensajeIot = data["mensaje"].toString();
     }
-
-    // Luego iniciar la escucha continua
-    _escucharMensajesIot();
+    irALaUltimaAlerta();
   });
+
+_ref.onValue.listen((event) {
+      final data = event.snapshot.value as Map<dynamic, dynamic>?;
+      if (data != null) {
+        final lat = (data['latitud'] as num?)?.toDouble();
+        final lng = (data['longitud'] as num?)?.toDouble();
+        final timestamp = data['timestamp']?.toString() ?? "Sin fecha";
+        if (lat != null && lng != null) {
+          _mostrarAlertaEnMapa("Alerta IoT\n$timestamp", lat, lng);
+        }
+      }
+    });
 
   _escucharAlertasEnTiempoReal(); // Inicia la escucha de alertas SOS en tiempo real
   LocationService.startLocationUpdates(); // Inicia actualización de ubicación en background
@@ -259,19 +268,26 @@ void initState() {
   //
 
   //
-  // Limpiar escuchas activas y eliminar todos los marcadores en el mapa
-  Future<void> _limpiarEscuchasYMarcadores() async {
-    for (var sub in miembrosListeners.values) {
-      await sub.cancel();
-    }
-    miembrosListeners.clear();
-    await pointAnnotationManager?.deleteAll();
-    marcadores.clear();
+Future<void> _limpiarEscuchasYMarcadores() async {
+  // Cancelar listeners
+  for (final sub in miembrosListeners.values) {
+    await sub.cancel();
   }
+  miembrosListeners.clear();
+
+  // Borrar marcadores del mapa
+  if (pointAnnotationManager != null) {
+    await pointAnnotationManager!.deleteAll();
+  }
+
+  // Limpiar memoria
+  marcadores.clear();
+  _ultimoUpdateMarcador.clear();
+}
   //
 
-  //
-  // Crear un círculo en el mapa en una posición dada (usado para zonas o selecciones)
+
+  //Crear un círculo en el mapa en una posición dada (usado para zonas o selecciones)
   Future<void> _crearCirculo(mp.Point posicion) async {
     if (circleAnnotationManager == null) {
       print("❌ circleAnnotationManager no está inicializado");
@@ -611,112 +627,172 @@ for (var doc in circulos.docs) {
 
 
 
-//
-void _escucharMensajesIot() {
-  _ref.child('mensaje').onValue.listen((event) {
-    final data = event.snapshot.value;
-    if (data != null && data.toString().isNotEmpty) {
-      final nuevoMensaje = data.toString();
 
-      // Actualizamos variable del último mensaje recibido siempre
-      setState(() {
-        _ultimoMensajeIot = nuevoMensaje;
-      });
 
-      // Mostrar diálogo solo si el mensaje es diferente al último mostrado
-      if (_ultimoMensajeMostrado != nuevoMensaje) {
-        _mostrarDialogoMensajeIot(nuevoMensaje);
-        _ultimoMensajeMostrado = nuevoMensaje;  // Guardamos el mensaje que mostramos
-      }
-    }
-  });
-}
 //
 
 //
 
-  void _mostrarDialogoMensajeIot(String mensaje) async {
-  if (_dialogoAbierto) return; // Si ya hay un diálogo abierto, no abrir otro
-  _dialogoAbierto = true;
-
-  await showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      backgroundColor: Colors.red.shade700,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: const Text(
-        'Alerta IoT',
-        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        textAlign: TextAlign.center,
-      ),
-      content: Text(
-        mensaje,
-        style: const TextStyle(color: Colors.white, fontSize: 18),
-        textAlign: TextAlign.center,
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text(
-            'Cerrar',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-          ),
-        )
-      ],
-    ),
-  );
-
-  _dialogoAbierto = false; // Se cerró el diálogo, puede abrirse otro ahora
-}
-
+  
 
 //
 
 
 
+Future<void> _actualizarMarcador(String uid, double lat, double lng, String nombre) async {
+  final ahora = DateTime.now();
+  final ultimo = _ultimoUpdateMarcador[uid];
+  if (ultimo != null && ahora.difference(ultimo).inMilliseconds < 500) {
+    // No actualizar más de una vez cada 500ms
+    return;
+  }
+  _ultimoUpdateMarcador[uid] = ahora;
 
+  final posicion = mp.Point(coordinates: mp.Position(lng, lat));
 
+  try {
+    if (marcadores.containsKey(uid)) {
+      final marcadorExistente = marcadores[uid]!;
 
-void _escucharUbicacionesDelCirculo(String circleId) async {
-  // Limpiar escuchas y marcadores previos
-  await _limpiarEscuchasYMarcadores();
-  print("Escuchando ubicaciones para círculo: $circleId");
+      // Actualizar propiedades directamente
+      marcadorExistente.geometry = posicion;
+      marcadorExistente.textField = nombre;
 
-  // Obtener documento del círculo
-  final circleDoc = await FirebaseFirestore.instance.collection('circulos').doc(circleId).get();
-  if (!circleDoc.exists) return;
+      // Llamar update solo con el marcador actualizado
+      await pointAnnotationManager!.update(marcadorExistente);
 
-  // Obtener lista de miembros (UIDs o mapas con datos)
-  final miembros = circleDoc.data()?['miembros'] as List<dynamic>? ?? [];
-  print('Miembros del círculo ($circleId): $miembros');
-
-  // Función auxiliar para crear o actualizar marcador
-  Future<void> _actualizarMarcador(String uid, double lat, double lng, String nombre) async {
-    final posicion = mp.Point(coordinates: mp.Position(lng, lat));
-    try {
-      if (marcadores.containsKey(uid)) {
-        await pointAnnotationManager!.delete(marcadores[uid]!);
-        marcadores.remove(uid);
-      }
+      print('♻️ Marcador actualizado para $uid ($lat, $lng)');
+    } else {
       final nuevoMarcador = await pointAnnotationManager!.create(
         mp.PointAnnotationOptions(
           geometry: posicion,
           iconImage: "marker",
           iconSize: 4,
           textField: nombre,
-          textOffset: [0, 3.5],
+          textOffset: [0, 3.0],
           textSize: 13,
           textHaloWidth: 1.0,
         ),
       );
       marcadores[uid] = nuevoMarcador;
-      print('✅ Marcador actualizado para $uid ($lat, $lng)');
-    } catch (e) {
-      print("❌ Error al crear marcador para $uid: $e");
+      print('✅ Marcador creado para $uid ($lat, $lng)');
     }
+  } catch (e) {
+    print("❌ Error al actualizar marcador para $uid: $e");
+  }
+}
+
+
+void _escucharAlertasSmart() {
+  FirebaseFirestore.instance
+      .collection('alertas')
+      .orderBy('createdAt', descending: true)
+      .limit(1) // Solo la última alerta
+      .snapshots()
+      .listen((snapshot) {
+    if (snapshot.docs.isNotEmpty) {
+      final doc = snapshot.docs.first;
+      final data = doc.data();
+      final lat = (data['lat'] as num?)?.toDouble();
+      final lon = (data['lon'] as num?)?.toDouble();
+      final mensaje = data['mensaje']?.toString() ?? "Alerta sin mensaje";
+      final fecha = data['createdAt']?.toString() ?? "Sin fecha";
+
+      if (lat != null && lon != null) {
+        _mostrarAlertaEnMapa("$mensaje\n$fecha", lat, lon);
+      }
+    }
+  });
+}
+
+
+
+Future<void> irALaUltimaAlerta() async {
+  try {
+    final snapshot = await _ref.child('mensaje').get(); // apuntamos al nodo "mensaje"
+    final data = snapshot.value as Map<dynamic, dynamic>?;
+
+    if (data != null) {
+      final double? lat = (data['latitud'] as num?)?.toDouble();
+      final double? lng = (data['longitud'] as num?)?.toDouble();
+      final String timestamp = data['timestamp']?.toString() ?? "Sin fecha";
+
+      if (lat != null && lng != null) {
+        _mostrarAlertaEnMapa("Alerta IoT\n$timestamp", lat, lng);
+      } else {
+        print("No hay coordenadas disponibles en la última alerta");
+      }
+    }
+  } catch (e) {
+    print("Error al obtener última alerta: $e");
+  }
+}
+
+
+
+void _mostrarAlertaEnMapa(String mensaje, double lat, double lng) async {
+  if (mapboxMapController == null) return;
+
+  // Mover la cámara a la ubicación de la alerta
+  await mapboxMapController!.flyTo(
+    mp.CameraOptions(
+      center: mp.Point(coordinates: mp.Position(lng, lat)),
+      zoom: 15.0,
+    ),
+    mp.MapAnimationOptions(duration: 1000),
+  );
+
+  // Agregar marcador usando pointAnnotationManager
+  if (pointAnnotationManager != null) {
+    await pointAnnotationManager!.create(
+      mp.PointAnnotationOptions(
+        geometry: mp.Point(coordinates: mp.Position(lng, lat)),
+        iconImage: "marker",
+        iconSize: 5.0,
+        textField: mensaje,
+        textOffset: [3, 3.0],
+      ),
+    );
   }
 
-  // Escuchar ubicación de cada miembro sin bloquear el loop con await
+  // Mostrar diálogo de alerta
+  if (!_dialogoAbierto) {
+    _dialogoAbierto = true;
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text("⚠ Alerta IoT"),
+        content: Text(mensaje),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _dialogoAbierto = false;
+            },
+            child: const Text("Cerrar"),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+void _escucharUbicacionesDelCirculo(String circleId) async {
+  await _limpiarEscuchasYMarcadores();
+  print("Escuchando ubicaciones para círculo: $circleId");
+
+  final circleDoc = await FirebaseFirestore.instance
+      .collection('circulos')
+      .doc(circleId)
+      .get();
+  if (!circleDoc.exists) return;
+
+  final miembros = circleDoc.data()?['miembros'] as List<dynamic>? ?? [];
+  print('Miembros del círculo ($circleId): $miembros');
+
+  final user = FirebaseAuth.instance.currentUser;
+
   for (final member in miembros) {
     String uid;
     String name = 'Sin nombre';
@@ -733,41 +809,32 @@ void _escucharUbicacionesDelCirculo(String circleId) async {
       continue;
     }
 
-    // Guardar la suscripción, que se maneja fuera con _limpiarEscuchasYMarcadores
+    // Si el UID es del usuario actual, usar texto "Tú"
+    if (user != null && uid == user.uid) {
+      name = "Tú";
+    }
+
     final sub = FirebaseFirestore.instance
         .collection('ubicaciones')
         .doc(uid)
         .snapshots()
         .listen((snapshot) {
       if (!snapshot.exists) return;
+
       final data = snapshot.data();
       final lat = data?['lat'] ?? data?['latitude'];
       final lng = data?['lng'] ?? data?['longitude'];
       if (lat == null || lng == null) return;
 
-      // Actualizar marcador async sin bloquear el stream
       _actualizarMarcador(uid, lat, lng, name);
     });
 
     miembrosListeners[uid] = sub;
   }
-
-  // Agregar marcador para usuario autenticado, sin esperar (más rápido)
-  final user = FirebaseAuth.instance.currentUser;
-  if (user != null) {
-    final uid = user.uid;
-    final userLocDoc = await FirebaseFirestore.instance.collection('ubicaciones').doc(uid).get();
-    if (userLocDoc.exists) {
-      final data = userLocDoc.data();
-      final lat = data?['lat'] ?? data?['latitude'];
-      final lng = data?['lng'] ?? data?['longitude'];
-      if (lat != null && lng != null) {
-        // Reutilizar la función para crear marcador de usuario
-        await _actualizarMarcador(uid, lat, lng, "Tú");
-      }
-    }
-  }
 }
+
+
+
 
 //
 void _abrirZonasRiesgo() async {
@@ -1436,6 +1503,23 @@ Widget build(BuildContext context) {
         );
       }, contrastColor),
       actions: [
+    IconButton(
+      icon: const Icon(Icons.location_pin),
+      tooltip: 'Ir a la última alerta',
+      onPressed: () async {
+        await irALaUltimaAlerta();
+      },
+    ),
+
+       IconButton(
+      icon: const Icon(Icons.location_city_outlined),
+      tooltip: 'Ir a la última alerta',
+      onPressed: () async {
+         _escucharAlertasSmart();
+      },
+    ),
+
+      
         
         Stack(
           children: [
