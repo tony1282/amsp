@@ -21,6 +21,7 @@ dependencies:
   http: ^1.4.0
   firebase_database: ^10.5.7
   intl: ^0.20.2
+  audioplayers: ^6.5.0
 
 
 dev_dependencies:
@@ -33,6 +34,8 @@ flutter:
   assets:
     - assets/images1.jpg
     - assets/user.png
+    - assets/alert.png
+    - assets/sounds/alert.mp3
     - .env
     - assets/geojson/Tlax.geojson
     - assets/geojson/tlaxcala_zonas.geojson

@@ -9,10 +9,13 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart' as gl;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:audioplayers/audioplayers.dart';
+
 
 // Importar pantallas
 import 'conf_screen.dart';
@@ -54,6 +57,7 @@ class _HomePageState extends State<HomePage> {
   mp.PointAnnotation? usuarioTextoAnnotation;
   mp.PointAnnotationManager? pointAnnotationManager;
   mp.CircleAnnotationManager? circleAnnotationManager;
+  mp.CircleAnnotation? usuarioCircleAnnotation;
   mp.Point? ultimaPosicion;
   
 
@@ -64,6 +68,7 @@ class _HomePageState extends State<HomePage> {
   Map<String, mp.PointAnnotation> miembrosAnnotations = {};
   Map<String, mp.PointAnnotation> miembrosTextAnnotations = {};
   Map<String, mp.Point> todasPosiciones = {};
+  Map<String, mp.PointAnnotation> alertasAnnotations = {};
 
 
   bool esCreadorFamilia = false;
@@ -78,6 +83,8 @@ class _HomePageState extends State<HomePage> {
   StreamSubscription? _accelerometerSubscription;
 
   final DatabaseReference _ref = FirebaseDatabase.instance.ref();
+  final AudioPlayer _player = AudioPlayer();
+
 
 
   String? circuloSeleccionadoId;
@@ -332,14 +339,9 @@ Future<void> _escucharUbicacionesDelCirculo(String circleId) async {
       .doc(circleId)
       .get();
 
-  if (!circleDoc.exists) {
-    print("El círculo no existe");
-    return;
-  }
+  if (!circleDoc.exists) return;
 
   final miembros = circleDoc.data()?['miembros'] as List<dynamic>? ?? [];
-  print('Miembros del círculo ($circleId): $miembros');
-
   final user = FirebaseAuth.instance.currentUser;
 
   for (final member in miembros) {
@@ -352,7 +354,6 @@ Future<void> _escucharUbicacionesDelCirculo(String circleId) async {
       uid = member['uid'];
       name = member['name'] ?? 'Sin nombre';
     } else {
-      print("Formato de miembro desconocido: $member");
       continue;
     }
 
@@ -366,28 +367,65 @@ Future<void> _escucharUbicacionesDelCirculo(String circleId) async {
       if (!snapshot.exists) return;
 
       final data = snapshot.data();
-      final lat = data?['lat'] ?? data?['latitude'];
-      final lng = data?['lng'] ?? data?['longitude'];
+      final lat = (data?['lat'] ?? data?['latitude'])?.toDouble();
+      final lng = (data?['lng'] ?? data?['longitude'])?.toDouble();
       if (lat == null || lng == null) return;
 
-      final punto = mp.Point(coordinates: mp.Position(lng, lat));
+      final puntoNuevo = mp.Point(coordinates: mp.Position(lng, lat));
 
-      todasPosiciones[uid] = punto;
+      // Guardar el nuevo destino y mover suavemente
+      _moverMarcadorFluido(uid, puntoNuevo, name);
 
-      await _actualizarMarcadorMiembro(uid, lat, lng, name);
-
-      if (mapboxMapController != null && todasPosiciones.isNotEmpty) {
-        await _ajustarZoomParaTodos(todasPosiciones);
+      // Ajustar zoom solo la primera vez
+      if (!_zoomAjustadoParaCirculo && mapboxMapController != null) {
+        todasPosiciones[uid] = puntoNuevo;
+        await _ajustarZoomParaTodos(todasPosiciones, forzar: true);
       }
     });
 
     miembrosListeners[uid] = sub;
   }
+}
 
-  if (usuarioAnnotation != null) {
-    todasPosiciones['usuario'] = usuarioAnnotation!.geometry!;
+
+Future<void> _moverMarcadorFluido(
+    String uid, mp.Point destino, String name) async {
+  final marcador = miembrosAnnotations[uid];
+  final texto = miembrosTextAnnotations[uid];
+
+  // Si no existe el marcador, lo creamos
+  if (marcador == null || texto == null) {
+    await _actualizarMarcadorMiembro(
+      uid,
+      destino.coordinates.lat.toDouble(),
+      destino.coordinates.lng.toDouble(),
+      name,
+    );
+    return;
+  }
+
+  final origen = marcador.geometry!;
+  final frames = 30; // 30 pasos → ~1 segundo
+  const frameDelay = Duration(milliseconds: 33); // ≈ 30 FPS
+
+  for (int i = 1; i <= frames; i++) {
+    final t = i / frames;
+    final lat = origen.coordinates.lat +
+        (destino.coordinates.lat - origen.coordinates.lat) * t;
+    final lng = origen.coordinates.lng +
+        (destino.coordinates.lng - origen.coordinates.lng) * t;
+
+    final puntoInterpolado = mp.Point(coordinates: mp.Position(lng, lat));
+    marcador.geometry = puntoInterpolado;
+    texto.geometry = puntoInterpolado;
+
+    await pointAnnotationManager?.update(marcador);
+    await pointAnnotationManager?.update(texto);
+
+    await Future.delayed(frameDelay);
   }
 }
+
 
 Future<void> _actualizarMarcadorMiembro(
     String uid, double lat, double lng, String name) async {
@@ -409,8 +447,8 @@ Future<void> _actualizarMarcadorMiembro(
       mp.PointAnnotationOptions(
         geometry: punto,
         image: imageData,
-        iconSize: 0.45,
-        iconOffset: [0, -30],
+        iconSize: 0.30,
+        iconOffset: [0, -2],
       ),
     );
     miembrosAnnotations[uid] = annotation!;
@@ -520,7 +558,6 @@ void _mostrarOpcionesCirculo() {
 
 
 //Zonas de riesgo
-
 Future<void> refrescarZonasTlaxcala(mp.MapboxMap mapboxMap) async {
   await mapboxMap.loadStyleURI('mapbox://styles/mapbox/streets-v12'); 
   _mostrarGeoJsonTlaxcala(mapboxMap);
@@ -918,8 +955,7 @@ for (var doc in circulos.docs) {
   await batch.commit();
 }
 
-
-
+// alertas Smart e Iot
 void _escucharAlertasSmart() {
   FirebaseFirestore.instance
       .collection('alertas')
@@ -936,7 +972,7 @@ void _escucharAlertasSmart() {
       final fecha = data['createdAt']?.toString() ?? "Sin fecha";
 
       if (lat != null && lon != null) {
-        _mostrarAlertaEnMapa("$mensaje\n$fecha", lat, lon);
+        _mostrarAlertaEnMapa("Alerta SmartWatch\n¡$mensaje!", lat, lon);
       }
     }
   });
@@ -954,7 +990,7 @@ Future<void> irALaUltimaAlerta() async {
       final String timestamp = data['timestamp']?.toString() ?? "Sin fecha";
 
       if (lat != null && lng != null) {
-        _mostrarAlertaEnMapa("Alerta IoT\n$timestamp", lat, lng);
+        _mostrarAlertaEnMapa("Alerta IoT\n¡Estoy en peligro!", lat, lng);
       } else {
         print("No hay coordenadas disponibles en la última alerta");
       }
@@ -966,8 +1002,23 @@ Future<void> irALaUltimaAlerta() async {
 
 
 
-void _mostrarAlertaEnMapa(String mensaje, double lat, double lng) async {
+
+void _mostrarAlertaEnMapa(String mensaje, double lat, double lng, {Timestamp? createdAt}) async {
   if (mapboxMapController == null) return;
+
+  if (createdAt != null) {
+    final ahora = DateTime.now();
+    final alertaFecha = createdAt.toDate();
+    final diferencia = ahora.difference(alertaFecha);
+    if (diferencia.inSeconds >= 5) {
+      final idAlerta = "$lat-$lng";
+      if (alertasAnnotations.containsKey(idAlerta)) {
+        await pointAnnotationManager?.delete(alertasAnnotations[idAlerta]!);
+        alertasAnnotations.remove(idAlerta);
+      }
+      return;
+    }
+  }
 
   await mapboxMapController!.flyTo(
     mp.CameraOptions(
@@ -978,31 +1029,91 @@ void _mostrarAlertaEnMapa(String mensaje, double lat, double lng) async {
   );
 
   if (pointAnnotationManager != null) {
-    await pointAnnotationManager!.create(
-      mp.PointAnnotationOptions(
-        geometry: mp.Point(coordinates: mp.Position(lng, lat)),
-        iconImage: "marker",
-        iconSize: 5.0,
-        textField: mensaje,
-        textOffset: [3, 3.0],
-      ),
-    );
+    final idAlerta = "$lat-$lng";
+    if (!alertasAnnotations.containsKey(idAlerta)) {
+      final ByteData bytes = await rootBundle.load("assets/alert.png");
+      final Uint8List imageData = bytes.buffer.asUint8List();
+
+      final annotation = await pointAnnotationManager!.create(
+        mp.PointAnnotationOptions(
+          geometry: mp.Point(coordinates: mp.Position(lng, lat)),
+          image: imageData,
+          iconSize: 0.35,
+          iconOffset: [0, -80],
+          textField: mensaje,
+          textSize: 14.0,
+          textOffset: [0, 2.0],
+          textColor: Colors.black.value,
+          textHaloColor: Colors.white.value,
+          textHaloWidth: 2,
+        ),
+      );
+      alertasAnnotations[idAlerta] = annotation!;
+    }
   }
 
   if (!_dialogoAbierto) {
     _dialogoAbierto = true;
+
+    _player.setReleaseMode(ReleaseMode.loop);
+    await _player.play(AssetSource('sounds/alert.mp3'));
+
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text("⚠ Alerta IoT"),
-        content: Text(mensaje),
+        backgroundColor: Colors.red,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.warning, color: Colors.white),
+            SizedBox(width: 8),
+            Text(
+              "Alerta",
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 20,
+              ),
+            ),
+          ],
+        ),
+      content: Column(
+      mainAxisSize: MainAxisSize.min,
+       crossAxisAlignment: CrossAxisAlignment.start,
+       children: [
+       Text(
+       mensaje,
+       style: const TextStyle(
+          fontSize: 16,
+          color: Colors.white,
+      ),
+    ),
+    const SizedBox(height: 8),
+    Text(
+      "Ubicación: ${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}",
+      style: const TextStyle(
+        fontSize: 14,
+        color: Colors.white,
+      ),
+    ),
+  ],
+),
         actions: [
           TextButton(
             onPressed: () {
               Navigator.pop(context);
               _dialogoAbierto = false;
+              _player.stop();
             },
-            child: const Text("Cerrar"),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.white,
+              backgroundColor: Colors.red,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: const Text(
+              "Cerrar",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),
@@ -1058,7 +1169,6 @@ Future<void> _limpiarEscuchasYMarcadores() async {
 Future<void> _ajustarZoomParaTodos(Map<String, mp.Point> posiciones, {bool forzar = false}) async {
   if (mapboxMapController == null || posiciones.isEmpty) return;
 
-  // Solo ajusta si no se ha hecho aún o si forzar es true
   if (_zoomAjustadoParaCirculo && !forzar) return;
 
   double minLat = double.infinity, maxLat = -double.infinity;
@@ -1090,7 +1200,7 @@ Future<void> _ajustarZoomParaTodos(Map<String, mp.Point> posiciones, {bool forza
     mp.MapAnimationOptions(duration: 1000),
   );
 
-  _zoomAjustadoParaCirculo = true; // marca que ya se aplicó el zoom automático
+  _zoomAjustadoParaCirculo = true; 
 }
 //
 
@@ -1099,14 +1209,11 @@ Future<void> _ajustarZoomParaTodos(Map<String, mp.Point> posiciones, {bool forza
 
 
 // Configuración del seguimiento de la posición del usuario
-Future<void> _setupPositionTracking() async {
-  print(" Iniciando seguimiento de ubicación...");
+bool _seguirUsuario = true; // modo seguimiento activado por defecto
 
+Future<void> _setupPositionTracking() async {
   final serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
-  if (!serviceEnabled) {
-    print("Servicio de ubicación desactivado");
-    return;
-  }
+  if (!serviceEnabled) return;
 
   var permission = await gl.Geolocator.checkPermission();
   if (permission == gl.LocationPermission.denied) {
@@ -1114,80 +1221,47 @@ Future<void> _setupPositionTracking() async {
   }
   if (permission == gl.LocationPermission.denied ||
       permission == gl.LocationPermission.deniedForever) {
-    print("Permiso de ubicación denegado");
     return;
   }
 
+  // Mostrar puck azul
+  await mapboxMapController?.location.updateSettings(
+    mp.LocationComponentSettings(enabled: true, pulsingEnabled: true),
+  );
+
+  // Escuchar ubicación
   userPositionStream = gl.Geolocator.getPositionStream(
     locationSettings: const gl.LocationSettings(
-      accuracy: gl.LocationAccuracy.high,
-      distanceFilter: 50,
+      accuracy: gl.LocationAccuracy.best,
+      distanceFilter: 0,
     ),
-  ).listen((gl.Position? position) {
+  ).listen((gl.Position? position) async {
     if (position == null) return;
-
-    print("Nueva ubicación: ${position.latitude}, ${position.longitude}");
 
     final puntoUsuario = mp.Point(
       coordinates: mp.Position(position.longitude, position.latitude),
     );
 
-    if (circleAnnotationManager != null) {
-      _crearCirculoUsuario(puntoUsuario);
+    // 📌 Solo mover cámara si _seguirUsuario está activo
+    if (_seguirUsuario) {
+      await mapboxMapController!.easeTo(
+        mp.CameraOptions(center: puntoUsuario, zoom: 15.0),
+        mp.MapAnimationOptions(duration: 500),
+      );
     }
   });
 }
 
-
-
-Future<void> _crearCirculoUsuario(mp.Point punto) async {
-  if (_primerZoomUsuario && mapboxMapController != null) {
-    await mapboxMapController!.flyTo(
-      mp.CameraOptions(
-        center: punto,
-        zoom: 15.0, 
-      ),
-      mp.MapAnimationOptions(duration: 1000), 
-    );
-    _primerZoomUsuario = false;
-  }
-
-  if (usuarioAnnotation != null) {
-    usuarioAnnotation!.geometry = punto;
-    await pointAnnotationManager?.update(usuarioAnnotation!);
-
-    if (usuarioTextoAnnotation != null) {
-      usuarioTextoAnnotation!.geometry = punto;
-      await pointAnnotationManager?.update(usuarioTextoAnnotation!);
-    }
-    return;
-  }
-
-
-  final ByteData bytes = await rootBundle.load("assets/user.png");
-  final Uint8List imageData = bytes.buffer.asUint8List();
-
-  usuarioAnnotation = await pointAnnotationManager?.create(
-    mp.PointAnnotationOptions(
-      geometry: punto,
-      image: imageData,
-      iconSize: 0.5,
-      iconOffset: [0, -100],
-    ),
-  );
-
-  usuarioTextoAnnotation = await pointAnnotationManager?.create(
-    mp.PointAnnotationOptions(
-      geometry: punto,
-      textField: "Tú",
-      textSize: 18.0,
-      textOffset: [0, 1.3],
-      textColor: const Color.fromARGB(255, 0, 0, 0).value,
-      textHaloColor: Colors.white.value,
-      textHaloWidth: 3,
-    ),
-  );
+// 📌 Llamar a esto cuando el usuario toque un botón "Seguirme"
+void activarSeguimiento() {
+  _seguirUsuario = true;
 }
+
+// 📌 Llamar a esto cuando quiera ver otros miembros
+void desactivarSeguimiento() {
+  _seguirUsuario = false;
+}
+
 
 //
 
@@ -1501,39 +1575,35 @@ Widget build(BuildContext context) {
         );
       }, contrastColor),
       actions: [
-    IconButton(
-      icon: const Icon(Icons.location_pin),
-      tooltip: 'Ir a la última alerta',
-      onPressed: () async {
-        await irALaUltimaAlerta();
-      },
-    ),
-
-       IconButton(
-      icon: const Icon(Icons.location_city_outlined),
-      tooltip: 'Ir a la última alerta',
-      onPressed: () async {
-         _escucharAlertasSmart();
-      },
-    ),
-
-      
-        
+        IconButton(
+          icon: const Icon(Icons.location_pin),
+          tooltip: 'Ir a la última alerta',
+          onPressed: () async {
+            await irALaUltimaAlerta();
+          },
+        ),
+        IconButton(
+          icon: const Icon(Icons.location_city_outlined),
+          tooltip: 'Ir a la última alerta',
+          onPressed: () async {
+            _escucharAlertasSmart();
+          },
+        ),
         Stack(
           children: [
-          _iconButton(
-            Icons.notifications,() {
-            setState(() {
-            _mostrarNotificacion = false;
-            });
-            Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const NotificationScreen()),
-            );
-          },
-        contrastColor,
-        ),
-
+            _iconButton(
+              Icons.notifications,
+              () {
+                setState(() {
+                  _mostrarNotificacion = false;
+                });
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const NotificationScreen()),
+                );
+              },
+              contrastColor,
+            ),
             if (_mostrarNotificacion)
               Positioned(
                 right: 8,
@@ -1707,8 +1777,10 @@ Widget build(BuildContext context) {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
-            _bottomIcon(Icons.location_on, () async {
-              _abrirZonasRiesgo();
+            _bottomIcon(Icons.location_on, () {
+              setState(() {
+                _seguirUsuario = !_seguirUsuario;
+              });
             }, contrastColor),
             _bottomIcon(Icons.family_restroom, () {
               Navigator.push(
@@ -1730,7 +1802,6 @@ Widget build(BuildContext context) {
   );
 }
 
-// widget para el botón de icono
 Widget _iconButton(IconData icon, VoidCallback onPressed, Color color) {
   return IconButton(
     icon: Icon(icon, color: color, size: 40),
