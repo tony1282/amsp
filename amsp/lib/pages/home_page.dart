@@ -55,12 +55,15 @@ class _HomePageState extends State<HomePage> {
   mp.PointAnnotationManager? pointAnnotationManager;
   mp.CircleAnnotationManager? circleAnnotationManager;
   mp.Point? ultimaPosicion;
+  
 
 
   Map<String, DateTime> _ultimoUpdateMarcador = {};
   Map<String, StreamSubscription<DocumentSnapshot>> miembrosListeners = {};
   Map<String, mp.PointAnnotation> marcadores = {}; 
-
+  Map<String, mp.PointAnnotation> miembrosAnnotations = {};
+  Map<String, mp.PointAnnotation> miembrosTextAnnotations = {};
+  Map<String, mp.Point> todasPosiciones = {};
 
 
   bool esCreadorFamilia = false;
@@ -69,6 +72,7 @@ class _HomePageState extends State<HomePage> {
   bool _mostrarModalAlerta = false;
   bool _dialogoAbierto = false;
   bool _primerZoomUsuario = true;
+  bool _zoomAjustadoParaCirculo = false;
 
   StreamSubscription? _alertasSubscription;
   StreamSubscription? _accelerometerSubscription;
@@ -323,24 +327,13 @@ Future<void> _escucharUbicacionesDelCirculo(String circleId) async {
   await _limpiarEscuchasYMarcadores();
   print("Escuchando ubicaciones para círculo: $circleId");
 
- if (mapboxMapController != null) {
-  await mapboxMapController!.flyTo(
-    mp.CameraOptions(
- 
-      center: ultimaPosicion,
-      zoom: 8.0, 
-    ),
-    mp.MapAnimationOptions(duration: 1000), 
-  );
-}
-
   final circleDoc = await FirebaseFirestore.instance
       .collection('circulos')
       .doc(circleId)
       .get();
 
   if (!circleDoc.exists) {
-    print("El círculo no existe!!!!");
+    print("El círculo no existe");
     return;
   }
 
@@ -359,20 +352,17 @@ Future<void> _escucharUbicacionesDelCirculo(String circleId) async {
       uid = member['uid'];
       name = member['name'] ?? 'Sin nombre';
     } else {
-      print("Formato de miembro desconocido: $member!!!!!");
+      print("Formato de miembro desconocido: $member");
       continue;
     }
 
-    if (user != null && uid == user.uid) {
-      print("Omitiendo marcador del usuario actual");
-      continue;
-    }
+    if (user != null && uid == user.uid) continue;
 
     final sub = FirebaseFirestore.instance
         .collection('ubicaciones')
         .doc(uid)
         .snapshots()
-        .listen((snapshot) {
+        .listen((snapshot) async {
       if (!snapshot.exists) return;
 
       final data = snapshot.data();
@@ -380,12 +370,66 @@ Future<void> _escucharUbicacionesDelCirculo(String circleId) async {
       final lng = data?['lng'] ?? data?['longitude'];
       if (lat == null || lng == null) return;
 
-      _actualizarMarcador(uid, lat, lng, name);
+      final punto = mp.Point(coordinates: mp.Position(lng, lat));
+
+      todasPosiciones[uid] = punto;
+
+      await _actualizarMarcadorMiembro(uid, lat, lng, name);
+
+      if (mapboxMapController != null && todasPosiciones.isNotEmpty) {
+        await _ajustarZoomParaTodos(todasPosiciones);
+      }
     });
 
     miembrosListeners[uid] = sub;
   }
+
+  if (usuarioAnnotation != null) {
+    todasPosiciones['usuario'] = usuarioAnnotation!.geometry!;
+  }
 }
+
+Future<void> _actualizarMarcadorMiembro(
+    String uid, double lat, double lng, String name) async {
+  final punto = mp.Point(coordinates: mp.Position(lng, lat));
+
+  if (miembrosAnnotations.containsKey(uid)) {
+    miembrosAnnotations[uid]!.geometry = punto;
+    await pointAnnotationManager?.update(miembrosAnnotations[uid]!);
+
+    if (miembrosTextAnnotations.containsKey(uid)) {
+      miembrosTextAnnotations[uid]!.geometry = punto;
+      await pointAnnotationManager?.update(miembrosTextAnnotations[uid]!);
+    }
+  } else {
+    final ByteData bytes = await rootBundle.load("assets/user.png");
+    final Uint8List imageData = bytes.buffer.asUint8List();
+
+    final annotation = await pointAnnotationManager?.create(
+      mp.PointAnnotationOptions(
+        geometry: punto,
+        image: imageData,
+        iconSize: 0.45,
+        iconOffset: [0, -30],
+      ),
+    );
+    miembrosAnnotations[uid] = annotation!;
+
+    final textAnnotation = await pointAnnotationManager?.create(
+      mp.PointAnnotationOptions(
+        geometry: punto,
+        textField: name,
+        textSize: 18.0,
+        textOffset: [0, 2.0],
+        textColor: const Color.fromARGB(255, 0, 0, 0).value,
+        textHaloColor: Colors.white.value,
+        textHaloWidth: 3,
+      ),
+    );
+    miembrosTextAnnotations[uid] = textAnnotation!;
+  }
+}
+
 
 
 
@@ -995,44 +1039,6 @@ void _escucharAlertasEnTiempoReal() {
 
 
 // Marcadores de ubicación
-Future<void> _actualizarMarcador(
-    String uid, double lat, double lng, String nombre) async {
-  final ahora = DateTime.now();
-  final ultimo = _ultimoUpdateMarcador[uid];
-  if (ultimo != null && ahora.difference(ultimo).inMilliseconds < 500) {
-    return; 
-  }
-  _ultimoUpdateMarcador[uid] = ahora;
-
-  final posicion = mp.Point(coordinates: mp.Position(lng, lat));
-
-  try {
-    if (marcadores.containsKey(uid)) {
-      final marcadorExistente = marcadores[uid]!;
-      marcadorExistente.geometry = posicion;
-      marcadorExistente.textField = nombre;
-      await pointAnnotationManager!.update(marcadorExistente);
-    } else {
-      final nuevoMarcador = await pointAnnotationManager!.create(
-        mp.PointAnnotationOptions(
-          geometry: posicion,
-          iconImage: "marker",
-          iconSize: 4,
-          textField: nombre,
-          textOffset: [0, 3.0],
-          textSize: 13,
-          textHaloWidth: 1.0,
-        ),
-      );
-      marcadores[uid] = nuevoMarcador;
-    }
-  } catch (e) {
-    print("Error al actualizar marcador para $uid: $e");
-  }
-}
-
-
-
 Future<void> _limpiarEscuchasYMarcadores() async {
   for (final sub in miembrosListeners.values) {
     await sub.cancel();
@@ -1049,6 +1055,43 @@ Future<void> _limpiarEscuchasYMarcadores() async {
   _ultimoUpdateMarcador.clear();
 }
 
+Future<void> _ajustarZoomParaTodos(Map<String, mp.Point> posiciones, {bool forzar = false}) async {
+  if (mapboxMapController == null || posiciones.isEmpty) return;
+
+  // Solo ajusta si no se ha hecho aún o si forzar es true
+  if (_zoomAjustadoParaCirculo && !forzar) return;
+
+  double minLat = double.infinity, maxLat = -double.infinity;
+  double minLng = double.infinity, maxLng = -double.infinity;
+
+  for (final punto in posiciones.values) {
+    final lat = punto.coordinates.lat.toDouble();
+    final lng = punto.coordinates.lng.toDouble();
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+  }
+
+  final centerLat = (minLat + maxLat) / 2;
+  final centerLng = (minLng + maxLng) / 2;
+
+  final latDiff = maxLat - minLat;
+  final lngDiff = maxLng - minLng;
+
+  double zoom = 10 - ((latDiff + lngDiff) * 5);
+  if (zoom < 3) zoom = 3;
+
+  await mapboxMapController!.flyTo(
+    mp.CameraOptions(
+      center: mp.Point(coordinates: mp.Position(centerLng, centerLat)),
+      zoom: zoom,
+    ),
+    mp.MapAnimationOptions(duration: 1000),
+  );
+
+  _zoomAjustadoParaCirculo = true; // marca que ya se aplicó el zoom automático
+}
 //
 
 
@@ -1061,7 +1104,7 @@ Future<void> _setupPositionTracking() async {
 
   final serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
   if (!serviceEnabled) {
-    print("⚠️ Servicio de ubicación desactivado");
+    print("Servicio de ubicación desactivado");
     return;
   }
 
@@ -1071,7 +1114,7 @@ Future<void> _setupPositionTracking() async {
   }
   if (permission == gl.LocationPermission.denied ||
       permission == gl.LocationPermission.deniedForever) {
-    print("🚫 Permiso de ubicación denegado");
+    print("Permiso de ubicación denegado");
     return;
   }
 
@@ -1128,7 +1171,8 @@ Future<void> _crearCirculoUsuario(mp.Point punto) async {
     mp.PointAnnotationOptions(
       geometry: punto,
       image: imageData,
-      iconSize: 0.15,
+      iconSize: 0.5,
+      iconOffset: [0, -100],
     ),
   );
 
@@ -1136,9 +1180,11 @@ Future<void> _crearCirculoUsuario(mp.Point punto) async {
     mp.PointAnnotationOptions(
       geometry: punto,
       textField: "Tú",
-      textSize: 16.0,
-      textOffset: [0, 2.0],
-      textColor: Colors.black.value,
+      textSize: 18.0,
+      textOffset: [0, 1.3],
+      textColor: const Color.fromARGB(255, 0, 0, 0).value,
+      textHaloColor: Colors.white.value,
+      textHaloWidth: 3,
     ),
   );
 }
