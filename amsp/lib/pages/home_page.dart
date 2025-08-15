@@ -10,13 +10,11 @@ import 'package:geolocator/geolocator.dart' as gl;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
-import 'package:async/async.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:firebase_database/firebase_database.dart';
 
-
-
+// Importar pantallas
 import 'conf_screen.dart';
 import 'family_screen.dart';
 import 'notifications_screen.dart';
@@ -24,6 +22,8 @@ import 'user_screen_con.dart';
 import 'unirse_circulo_screen.dart';
 import 'agregar_dispositivo_screen.dart';
 import 'package:amsp/models/user_model.dart';
+
+
 
 class HomePage extends StatefulWidget {
   final String? circleId;
@@ -33,99 +33,81 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-// Clase para calcular acelerómetro (valor de gravedad y su raíz cuadrada para detectar sacudidas)
 class MiClase {
   late double valor;
   late double raiz;
 
   MiClase() {
     valor = 9.0;
-    raiz = sqrt(valor); // raiz cuadrada para detectar cambios bruscos
+    raiz = sqrt(valor); 
   }
 }
-//
+
 
 class _HomePageState extends State<HomePage> {
-  mp.MapboxMap? mapboxMapController;
+  
   StreamSubscription? userPositionStream;
-
-  // Manejadores para anotaciones (marcadores) en el mapa
+  
+  
+  mp.MapboxMap? mapboxMapController;
+  mp.PointAnnotation? usuarioAnnotation;
+  mp.PointAnnotation? usuarioTextoAnnotation;
   mp.PointAnnotationManager? pointAnnotationManager;
   mp.CircleAnnotationManager? circleAnnotationManager;
+  mp.Point? ultimaPosicion;
+
+
   Map<String, DateTime> _ultimoUpdateMarcador = {};
-  //
+  Map<String, StreamSubscription<DocumentSnapshot>> miembrosListeners = {};
+  Map<String, mp.PointAnnotation> marcadores = {}; 
 
-  //
-  bool esCreadorFamilia = false;  // Para saber si el usuario es admin/creador de círculo
-  bool cargandoUsuario = true;    // Estado para mostrar carga mientras se obtiene info usuario
-  bool _mostrarNotificacion = true; // Para mostrar una notificación visual (bolita)
-  bool _cargandoZonas = false;    // Estado para carga de zonas de riesgo
-  bool _modalVisible = false;     // Control para modales
-  bool _mostrarModalAlerta = false; // Control para mostrar modal SOS
-  bool _dialogoAbierto = false; // para evitar que se abran muchos alert dialog
-  //
 
-  //
-  StreamSubscription? _alertasSubscription;       // Suscripción para alertas en tiempo real
-  StreamSubscription? _accelerometerSubscription; // Suscripción para sensor acelerómetro
-  //
 
-//
-   final DatabaseReference _ref = FirebaseDatabase.instance.ref();
-//
+  bool esCreadorFamilia = false;
+  bool cargandoUsuario = true;
+  bool _mostrarNotificacion = true;
+  bool _mostrarModalAlerta = false;
+  bool _dialogoAbierto = false;
+  bool _primerZoomUsuario = true;
 
-  //
-  Map<String, dynamic>? _geojsonZonasRiesgo;  // GeoJSON para zonas de riesgo
+  StreamSubscription? _alertasSubscription;
+  StreamSubscription? _accelerometerSubscription;
+
+  final DatabaseReference _ref = FirebaseDatabase.instance.ref();
+
+
+  String? circuloSeleccionadoId;
+  String? circuloSeleccionadoNombre;
+  String? _ultimoMensajeIot;
   String? _ultimoMensajeMostrado;
-  //
+  String? _mensajeAlerta;
+  List<String> codigosRiesgo = [];
+  final Set<String> _alertasMostradasIds = {};
+  final Set<String> _alertasMostradas = {};
 
-  //
-  String? circuloSeleccionadoId;    // ID del círculo seleccionado para mostrar info
-  String? circuloSeleccionadoNombre; // Nombre del círculo seleccionado
-  //
+  Timestamp? _ultimoTimestampVisto; 
+  DateTime _ultimaSacudida = DateTime.now().subtract(const Duration(seconds: 10));
 
 
-//
-String? _ultimoMensajeIot;
-//
-
-  //
-  Map<String, StreamSubscription<DocumentSnapshot>> miembrosListeners = {}; // Listeners por miembro para ubicación
-  Map<String, mp.PointAnnotation> marcadores = {}; // Marcadores en el mapa por UID
-  //
-
-  //
-  Timestamp? _ultimoTimestampVisto; // Para controlar alertas nuevas y evitar duplicados
-  //
-
-  //
-  DateTime _ultimaSacudida = DateTime.now().subtract(const Duration(seconds: 10)); // Para controlar tiempo entre sacudidas detectadas
-  //
-
-  //
-  String? _mensajeAlerta;  // Mensaje de alerta actual
-  final Set<String> _alertasMostradasIds = {};  // IDs de alertas ya mostradas para evitar repetir
-  final Set<String> _alertasMostradas = {}; // Set para alertas ya mostradas
-  //
-
-  //
-  List<String> codigosRiesgo = [];  // Lista de códigos para filtrar zonas de riesgo
-  //
 
 @override
 void initState() {
   super.initState();
-   _escucharAlertasSmart();
+  _escucharAlertasSmart();
+  _escucharAlertasEnTiempoReal(); 
+  LocationService.startLocationUpdates(); 
+  cargarDatosUsuario(); 
 
-    _ref.child('').once().then((event) {
-    final data = event.snapshot.value as Map?;
-    if (data != null && data["mensaje"] != null) {
-      _ultimoMensajeIot = data["mensaje"].toString();
-    }
-    irALaUltimaAlerta();
+
+  _ref.child('').once().then((event) {
+  final data = event.snapshot.value as Map?;
+  if (data != null && data["mensaje"] != null) {
+    _ultimoMensajeIot = data["mensaje"].toString();
+  }
+  irALaUltimaAlerta();
   });
 
-_ref.onValue.listen((event) {
+  _ref.onValue.listen((event) {
       final data = event.snapshot.value as Map<dynamic, dynamic>?;
       if (data != null) {
         final lat = (data['latitud'] as num?)?.toDouble();
@@ -137,11 +119,8 @@ _ref.onValue.listen((event) {
       }
     });
 
-  _escucharAlertasEnTiempoReal(); // Inicia la escucha de alertas SOS en tiempo real
-  LocationService.startLocationUpdates(); // Inicia actualización de ubicación en background
-  cargarDatosUsuario(); // Carga datos del usuario actual
 
-  // Escuchar acelerómetro para detectar sacudidas fuertes
+
   _accelerometerSubscription = accelerometerEvents.listen((event) {
     final double aceleracion = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
 
@@ -156,26 +135,28 @@ _ref.onValue.listen((event) {
     }
   });
 
-  _setupPositionTraking();
+  _setupPositionTracking();
 }
 
-  //
+
+
+
   @override
   void dispose() {
-    userPositionStream?.cancel(); // Cancelar stream de posición usuario
+    userPositionStream?.cancel();
     for (var sub in miembrosListeners.values) {
-      sub.cancel(); // Cancelar escuchas de miembros
+      sub.cancel();
     }
     miembrosListeners.clear();
-    pointAnnotationManager?.deleteAll(); // Eliminar todos los marcadores del mapa
-    _accelerometerSubscription?.cancel(); // Cancelar escucha acelerómetro
-    _alertasSubscription?.cancel();       // Cancelar escucha de alertas
+    pointAnnotationManager?.deleteAll();
+    _accelerometerSubscription?.cancel();
+    _alertasSubscription?.cancel();
     super.dispose();
   }
-  //
 
-  //
-  // Cargar datos del usuario actual desde Firestore y obtener permiso/ubicación para actualizar Firestore
+
+
+//  Datos del usuario
   Future<void> cargarDatosUsuario() async {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) {
@@ -187,22 +168,18 @@ _ref.onValue.listen((event) {
     }
 
     try {
-      // Obtener documento del usuario
       final docUser = await FirebaseFirestore.instance
           .collection('users')
           .doc(currentUser.uid)
           .get();
 
-      // Convertir a modelo usuario
       final userModel = docUser.exists ? UserModel.fromDocumentSnapshot(docUser) : null;
 
       setState(() {
-        // Definir si el usuario es creador/admin según su tipo
         esCreadorFamilia = userModel?.tipoUsuario == TipoUsuario.admin;
         cargandoUsuario = false;
       });
 
-      // Obtener ubicación actual y actualizar en Firestore
       try {
         gl.LocationPermission permission = await gl.Geolocator.checkPermission();
         if (permission == gl.LocationPermission.denied || permission == gl.LocationPermission.deniedForever) {
@@ -228,26 +205,25 @@ _ref.onValue.listen((event) {
       });
     }
   }
-  //
+//
 
-  //
-  // Obtener lista de círculos a los que pertenece o que creó el usuario
+
+
+
+// circulos del usuario
   Future<List<QueryDocumentSnapshot>> _getCirculosUsuario() async {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) return [];
 
-    // Obtener círculos creados por el usuario
     final circulosCreadosSnap = await FirebaseFirestore.instance
         .collection('circulos')
         .where('creador', isEqualTo: currentUser.uid)
         .get();
 
-    // Obtener todos los círculos
     final circulosColeccion = await FirebaseFirestore.instance.collection('circulos').get();
 
     List<QueryDocumentSnapshot> circulosUsuario = [...circulosCreadosSnap.docs];
 
-    // Agregar círculos donde el usuario es miembro (no creador)
     for (var doc in circulosColeccion.docs) {
       final data = doc.data();
       final rawMiembros = data['miembros'] ?? [];
@@ -256,7 +232,6 @@ _ref.onValue.listen((event) {
           .where((e) => e is Map<String, dynamic>)
           .cast<Map<String, dynamic>>();
 
-      // Si el usuario está en la lista de miembros, agregar círculo a la lista
       if (miembros.any((m) => m['uid'] == currentUser.uid)) {
         if (!circulosUsuario.any((d) => d.id == doc.id)) {
           circulosUsuario.add(doc);
@@ -265,142 +240,13 @@ _ref.onValue.listen((event) {
     }
     return circulosUsuario;
   }
-  //
-
-  //
-Future<void> _limpiarEscuchasYMarcadores() async {
-  // Cancelar listeners
-  for (final sub in miembrosListeners.values) {
-    await sub.cancel();
-  }
-  miembrosListeners.clear();
-
-  // Borrar marcadores del mapa
-  if (pointAnnotationManager != null) {
-    await pointAnnotationManager!.deleteAll();
-  }
-
-  // Limpiar memoria
-  marcadores.clear();
-  _ultimoUpdateMarcador.clear();
-}
-  //
 
 
-  //Crear un círculo en el mapa en una posición dada (usado para zonas o selecciones)
-  Future<void> _crearCirculo(mp.Point posicion) async {
-    if (circleAnnotationManager == null) {
-      print("❌ circleAnnotationManager no está inicializado");
-      return;
-    }
-
-    await circleAnnotationManager!.create(
-      mp.CircleAnnotationOptions(
-        geometry: posicion,
-        circleRadius: 10,
-        circleColor: 0xFF007AFF, // Azul sólido ARGB
-        circleOpacity: 0.8,
-      ),
-    );
-  }
-  //
-  
-  //
-  // Refrescar (recargar) las zonas de riesgo en el mapa, recargando el estilo actual
-  Future<void> refrescarZonasTlaxcala(mp.MapboxMap mapboxMap) async {
-    // Recargar el estilo actual (puedes usar el mismo que tenías)
-    await mapboxMap.loadStyleURI('mapbox://styles/mapbox/streets-v12'); // o tu estilo personalizado
-
-    // Esperar a que se cargue antes de agregar capas
-    _mostrarGeoJsonTlaxcala(mapboxMap);
-  }
-  //
-
-
-//
-Future<void> _mostrarGeoJsonTlaxcala(mp.MapboxMap mapboxMap) async {
-  print("Iniciando carga del GeoJSON...");
-
-  // Cargar archivo GeoJSON desde assets
-  final geoJsonData = await rootBundle.loadString('assets/geojson/tlaxcala_zonas.geojson');
-  print("GeoJSON cargado, tamaño: ${geoJsonData.length} caracteres");
-
-  try {
-    // Agregar la fuente GeoJSON al estilo del mapa
-    await mapboxMap.style.addSource(
-      mp.GeoJsonSource(id: "tlaxcala-source", data: geoJsonData),
-    );
-    print("Fuente 'tlaxcala-source' agregada al mapa");
-  } catch (e) {
-    print("Error agregando fuente: $e");
-  }
-
-  // Definir filtro para mostrar solo polígonos con propiedad 'riesgo' igual a 'Alto'
-  final filtroAlto = ['==', ['get', 'riesgo'], 'Alto'];
-  print("Filtro para riesgo alto definido: $filtroAlto");
-
-  // Crear capa de relleno con color rojo semitransparente para zonas de riesgo alto
-  final fillLayerAlto = mp.FillLayer(
-    id: "tlaxcala-layer-alto",
-    sourceId: "tlaxcala-source",
-    filter: filtroAlto,
-    fillColor: 0x80FF0000, // rojo semitransparente
-    fillOpacity: 0.5,
-  );
-
-  try {
-    // Agregar la capa al mapa
-    await mapboxMap.style.addLayer(fillLayerAlto);
-    print("Capa de riesgo 'Alto' agregada al mapa");
-  } catch (e) {
-    print("Error agregando capa de riesgo: $e");
-  }
-
-  print("Proceso terminado");
-}
-//
-
-//
-Future<void> _setupPositionTraking() async {
-  // Verificar si el servicio de ubicación está activo
-  bool serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
-  if (!serviceEnabled) return;
-
-  // Verificar permisos de ubicación y solicitarlos si es necesario
-  gl.LocationPermission permission = await gl.Geolocator.checkPermission();
-  if (permission == gl.LocationPermission.denied) {
-    permission = await gl.Geolocator.requestPermission();
-    if (permission == gl.LocationPermission.denied) return;
-  }
-  if (permission == gl.LocationPermission.deniedForever) return;
-
-  // Escuchar actualizaciones de posición con alta precisión y filtro de 100 metros
-  userPositionStream = gl.Geolocator.getPositionStream(
-    locationSettings: const gl.LocationSettings(
-      accuracy: gl.LocationAccuracy.high,
-      distanceFilter: 100,
-    ),
-  ).listen((gl.Position? position) {
-    if (position != null) {
-      // Crear punto con coordenadas recibidas
-      final puntoUsuario = mp.Point(coordinates: mp.Position(position.longitude, position.latitude));
-      if (circleAnnotationManager != null) {
-        // Crear círculo en el mapa en la posición actual
-        _crearCirculo(puntoUsuario);
-      }
-    }
-  });
-}
-//
-
-//
 Future<void> _mostrarModalSeleccionCirculo() async {
-  // Obtener los círculos del usuario
   final circulos = await _getCirculosUsuario();
 
   if (!mounted) return;
 
-  // Mostrar modal tipo bottom sheet para selección de círculo
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
@@ -451,13 +297,11 @@ Future<void> _mostrarModalSeleccionCirculo() async {
                             title: Text(nombre),
                             subtitle: Text(tipo),
                             onTap: () {
-                              // Al seleccionar un círculo, actualizar estado y cerrar modal
                               setState(() {
                                 circuloSeleccionadoId = doc.id;
                                 circuloSeleccionadoNombre = nombre;
                               });
                               Navigator.pop(context);
-                              // Iniciar escucha de ubicaciones de los miembros del círculo
                               if (mapboxMapController != null) {
                                 _escucharUbicacionesDelCirculo(doc.id);
                               }
@@ -473,320 +317,32 @@ Future<void> _mostrarModalSeleccionCirculo() async {
     },
   );
 }
-//
-
-//
-Future<void> _modalTelefono(BuildContext context) async {
-  final theme = Theme.of(context);
-  final greenColor = theme.primaryColor;
-  final contrastColor = theme.appBarTheme.foregroundColor ?? Colors.white;
-  final userId = FirebaseAuth.instance.currentUser?.uid;
-
-  // Mostrar modal con lista de contactos de emergencia
-  showModalBottomSheet(
-    context: context,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
-    backgroundColor: greenColor,
-    isScrollControlled: true,
-    builder: (context) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.phone, size: 35, color: contrastColor),
-            Text(
-              'Contactos de Emergencia',
-              style: theme.textTheme.titleLarge?.copyWith(
-                color: contrastColor,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 20),
-            StreamBuilder<QuerySnapshot>(
-              // Escuchar contactos de emergencia en tiempo real
-              stream: FirebaseFirestore.instance
-                  .collection('contactos')
-                  .doc(userId)
-                  .collection('contactos_emergencia')
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return const CircularProgressIndicator();
-                }
-
-                final contactos = snapshot.data!.docs;
-
-                return ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: contactos.length,
-                  itemBuilder: (context, index) {
-                    final contacto = contactos[index];
-                    return _contactTile(
-                      context,
-                      contacto.id,
-                      contacto['nombre'],
-                      contacto['numero'],
-                    );
-                  },
-                );
-              },
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton.icon(
-              // Botón para agregar nuevo contacto
-              onPressed: () => _mostrarFormularioAgregar(context),
-              icon: const Icon(Icons.add),
-              label: const Text('Agregar Contacto'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: contrastColor,
-                foregroundColor: greenColor,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    },
-  );
-}
-//
-
-//
-Future<void> _enviarAlerta() async {
-  final user = FirebaseAuth.instance.currentUser;
-  if (user == null) return;
-
-  final uid = user.uid;
-  final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-
-  final nombre = userDoc.data()?['name'] ?? 'Usuario';
-  final phone = userDoc.data()?['phone'] ?? 'N/A';
-
-  gl.Position? posicion;
-  try {
-    bool servicioActivo = await gl.Geolocator.isLocationServiceEnabled();
-    if (!servicioActivo) {
-      print("GPS no está activo");
-    } else {
-      gl.LocationPermission permiso = await gl.Geolocator.checkPermission();
-      if (permiso == gl.LocationPermission.denied || permiso == gl.LocationPermission.deniedForever) {
-        permiso = await gl.Geolocator.requestPermission();
-      }
-      if (permiso != gl.LocationPermission.denied && permiso != gl.LocationPermission.deniedForever) {
-        posicion = await gl.Geolocator.getCurrentPosition(desiredAccuracy: gl.LocationAccuracy.high);
-      }
-    }
-  } catch (e) {
-    print("Error al obtener ubicación: $e");
-  }
-
-  // Obtener los círculos del usuario
-  final circulos = await FirebaseFirestore.instance
-      .collection('circulos')
-      .where('miembrosUids', arrayContains: uid)
-      .get();
-
-  WriteBatch batch = FirebaseFirestore.instance.batch();
-
-for (var doc in circulos.docs) {
-  final circleId = doc.id;
-
-  // Obtén la lista de UIDs de los miembros del círculo
-  final miembrosUids = List<String>.from(doc.data()['miembrosUids'] ?? []);
-
-  Map<String, dynamic> alertaData = {
-    'circleId': circleId, // IMPORTANTE para identificar el círculo
-    'mensaje': '¡$nombre ha enviado una alerta SOS!',
-    'emisorId': uid,
-    'name': nombre,
-    'phone': phone,
-    'timestamp': FieldValue.serverTimestamp(),
-    'destinatarios': miembrosUids,  // <<-- aquí agregas la lista para filtrar rápido
-  };
-
-  if (posicion != null) {
-    alertaData['ubicacion'] = {
-      'lat': posicion.latitude,
-      'lng': posicion.longitude,
-    };
-  }
-
-  // Guardar en colección global
-  final alertaRef = FirebaseFirestore.instance.collection('alertasCirculos').doc();
-  batch.set(alertaRef, alertaData);
-}
-
-  await batch.commit();
-}
 
 
-
-
-
-
-//
-
-//
-
-  
-
-//
-
-
-
-Future<void> _actualizarMarcador(String uid, double lat, double lng, String nombre) async {
-  final ahora = DateTime.now();
-  final ultimo = _ultimoUpdateMarcador[uid];
-  if (ultimo != null && ahora.difference(ultimo).inMilliseconds < 500) {
-    // No actualizar más de una vez cada 500ms
-    return;
-  }
-  _ultimoUpdateMarcador[uid] = ahora;
-
-  final posicion = mp.Point(coordinates: mp.Position(lng, lat));
-
-  try {
-    if (marcadores.containsKey(uid)) {
-      final marcadorExistente = marcadores[uid]!;
-
-      // Actualizar propiedades directamente
-      marcadorExistente.geometry = posicion;
-      marcadorExistente.textField = nombre;
-
-      // Llamar update solo con el marcador actualizado
-      await pointAnnotationManager!.update(marcadorExistente);
-
-      print('♻️ Marcador actualizado para $uid ($lat, $lng)');
-    } else {
-      final nuevoMarcador = await pointAnnotationManager!.create(
-        mp.PointAnnotationOptions(
-          geometry: posicion,
-          iconImage: "marker",
-          iconSize: 4,
-          textField: nombre,
-          textOffset: [0, 3.0],
-          textSize: 13,
-          textHaloWidth: 1.0,
-        ),
-      );
-      marcadores[uid] = nuevoMarcador;
-      print('✅ Marcador creado para $uid ($lat, $lng)');
-    }
-  } catch (e) {
-    print("❌ Error al actualizar marcador para $uid: $e");
-  }
-}
-
-
-void _escucharAlertasSmart() {
-  FirebaseFirestore.instance
-      .collection('alertas')
-      .orderBy('createdAt', descending: true)
-      .limit(1) // Solo la última alerta
-      .snapshots()
-      .listen((snapshot) {
-    if (snapshot.docs.isNotEmpty) {
-      final doc = snapshot.docs.first;
-      final data = doc.data();
-      final lat = (data['lat'] as num?)?.toDouble();
-      final lon = (data['lon'] as num?)?.toDouble();
-      final mensaje = data['mensaje']?.toString() ?? "Alerta sin mensaje";
-      final fecha = data['createdAt']?.toString() ?? "Sin fecha";
-
-      if (lat != null && lon != null) {
-        _mostrarAlertaEnMapa("$mensaje\n$fecha", lat, lon);
-      }
-    }
-  });
-}
-
-
-
-Future<void> irALaUltimaAlerta() async {
-  try {
-    final snapshot = await _ref.child('mensaje').get(); // apuntamos al nodo "mensaje"
-    final data = snapshot.value as Map<dynamic, dynamic>?;
-
-    if (data != null) {
-      final double? lat = (data['latitud'] as num?)?.toDouble();
-      final double? lng = (data['longitud'] as num?)?.toDouble();
-      final String timestamp = data['timestamp']?.toString() ?? "Sin fecha";
-
-      if (lat != null && lng != null) {
-        _mostrarAlertaEnMapa("Alerta IoT\n$timestamp", lat, lng);
-      } else {
-        print("No hay coordenadas disponibles en la última alerta");
-      }
-    }
-  } catch (e) {
-    print("Error al obtener última alerta: $e");
-  }
-}
-
-
-
-void _mostrarAlertaEnMapa(String mensaje, double lat, double lng) async {
-  if (mapboxMapController == null) return;
-
-  // Mover la cámara a la ubicación de la alerta
-  await mapboxMapController!.flyTo(
-    mp.CameraOptions(
-      center: mp.Point(coordinates: mp.Position(lng, lat)),
-      zoom: 15.0,
-    ),
-    mp.MapAnimationOptions(duration: 1000),
-  );
-
-  // Agregar marcador usando pointAnnotationManager
-  if (pointAnnotationManager != null) {
-    await pointAnnotationManager!.create(
-      mp.PointAnnotationOptions(
-        geometry: mp.Point(coordinates: mp.Position(lng, lat)),
-        iconImage: "marker",
-        iconSize: 5.0,
-        textField: mensaje,
-        textOffset: [3, 3.0],
-      ),
-    );
-  }
-
-  // Mostrar diálogo de alerta
-  if (!_dialogoAbierto) {
-    _dialogoAbierto = true;
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("⚠ Alerta IoT"),
-        content: Text(mensaje),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _dialogoAbierto = false;
-            },
-            child: const Text("Cerrar"),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-
-void _escucharUbicacionesDelCirculo(String circleId) async {
+Future<void> _escucharUbicacionesDelCirculo(String circleId) async {
   await _limpiarEscuchasYMarcadores();
   print("Escuchando ubicaciones para círculo: $circleId");
+
+ if (mapboxMapController != null) {
+  await mapboxMapController!.flyTo(
+    mp.CameraOptions(
+ 
+      center: ultimaPosicion,
+      zoom: 8.0, 
+    ),
+    mp.MapAnimationOptions(duration: 1000), 
+  );
+}
 
   final circleDoc = await FirebaseFirestore.instance
       .collection('circulos')
       .doc(circleId)
       .get();
-  if (!circleDoc.exists) return;
+
+  if (!circleDoc.exists) {
+    print("El círculo no existe!!!!");
+    return;
+  }
 
   final miembros = circleDoc.data()?['miembros'] as List<dynamic>? ?? [];
   print('Miembros del círculo ($circleId): $miembros');
@@ -799,19 +355,17 @@ void _escucharUbicacionesDelCirculo(String circleId) async {
 
     if (member is String) {
       uid = member;
-      print("🧩 Miembro con solo UID: $uid");
     } else if (member is Map<String, dynamic>) {
       uid = member['uid'];
       name = member['name'] ?? 'Sin nombre';
-      print("🧩 Miembro con datos: $uid, nombre: $name");
     } else {
-      print("⚠️ Formato desconocido: $member");
+      print("Formato de miembro desconocido: $member!!!!!");
       continue;
     }
 
-    // Si el UID es del usuario actual, usar texto "Tú"
     if (user != null && uid == user.uid) {
-      name = "Tú";
+      print("Omitiendo marcador del usuario actual");
+      continue;
     }
 
     final sub = FirebaseFirestore.instance
@@ -835,108 +389,12 @@ void _escucharUbicacionesDelCirculo(String circleId) async {
 
 
 
-
-//
-void _abrirZonasRiesgo() async {
-  // Navegar a pantalla para seleccionar códigos de zonas de riesgo
-  final codigos = await Navigator.push<List<String>>(
-    context,
-    MaterialPageRoute(builder: (context) => ZonasRiesgoScreen()),
-  );
-
-  if (codigos != null) {
-    // Guardar los códigos seleccionados en el estado
-    setState(() {
-      codigosRiesgo = codigos;
-    });
-
-    // Pintar las zonas en el mapa si el controlador está disponible
-    if (mapboxMapController != null) {
-      await _mostrarGeoJsonTlaxcala(mapboxMapController!);
-    }
-  }
-}
-//
-
-//
-void _escucharAlertasEnTiempoReal() {
-  final uid = FirebaseAuth.instance.currentUser?.uid;
-  if (uid == null) return;
-
-  // Escuchar en tiempo real las alertas en todas las subcolecciones 'alertas'
-  _alertasSubscription = FirebaseFirestore.instance
-      .collectionGroup('alertas')
-      .orderBy('timestamp', descending: true)
-      .snapshots()
-      .listen((snapshot) {
-    if (snapshot.docs.isEmpty) return;
-
-    final alerta = snapshot.docs.first;
-    final emisorId = alerta['emisorid'];
-    final timestamp = alerta['timestamp'] as Timestamp;
-
-    // Mostrar notificación solo si la alerta es nueva y no es del usuario actual
-    if ((_ultimoTimestampVisto == null || timestamp.compareTo(_ultimoTimestampVisto!) > 0) &&
-        emisorId != uid) {
-      setState(() {
-        _mostrarNotificacion = true;
-        _ultimoTimestampVisto = timestamp;
-      });
-    }
-  });
-}
-//
-
-//
-void _onMapCreated(mp.MapboxMap controller) async {
-  setState(() {
-    mapboxMapController = controller;
-  });
-
-  // Navegar para obtener códigos de riesgo desde otra pantalla
-  final resultado = await Navigator.push<List<String>>(
-    context,
-    MaterialPageRoute(builder: (_) => ZonasRiesgoScreen()),
-  );
-
-  if (resultado != null) {
-    codigosRiesgo = resultado;
-    await _mostrarGeoJsonTlaxcala(controller);
-  }
-
-  // Activar componente de ubicación en el mapa
-  await controller.location.updateSettings(
-    mp.LocationComponentSettings(enabled: true),
-  );
-
-  // Crear manejadores para anotaciones de puntos y círculos
-  pointAnnotationManager = await controller.annotations.createPointAnnotationManager();
-  circleAnnotationManager = await controller.annotations.createCircleAnnotationManager();
-
-  // Si no hay círculo seleccionado, usar el que venga en widget.circleId
-  if ((circuloSeleccionadoId == null || circuloSeleccionadoId!.isEmpty) &&
-      widget.circleId != null &&
-      widget.circleId!.isNotEmpty) {
-    circuloSeleccionadoId = widget.circleId;
-  }
-
-  // Escuchar ubicaciones del círculo seleccionado si existe
-  if (circuloSeleccionadoId != null && circuloSeleccionadoId!.isNotEmpty) {
-    _escucharUbicacionesDelCirculo(circuloSeleccionadoId!);
-  } else {
-    print('❗ No se ha seleccionado ningún círculo. No se puede escuchar ubicaciones.');
-  }
-}
-//
-
-//
-void _mostrarOpcionesFamilia() {
+void _mostrarOpcionesCirculo() {
   final theme = Theme.of(context);
   final greenColor = theme.primaryColor;
   final contrastColor = theme.appBarTheme.foregroundColor ?? Colors.white;
   final orangeColor = theme.colorScheme.secondary;
 
-  // Mostrar modal bottom sheet con opciones relacionadas a la familia/círculo
   showModalBottomSheet(
     context: context,
     shape: const RoundedRectangleBorder(
@@ -1012,11 +470,153 @@ void _mostrarOpcionesFamilia() {
     },
   );
 }
-//
 
 //
+
+
+
+//Zonas de riesgo
+
+Future<void> refrescarZonasTlaxcala(mp.MapboxMap mapboxMap) async {
+  await mapboxMap.loadStyleURI('mapbox://styles/mapbox/streets-v12'); 
+  _mostrarGeoJsonTlaxcala(mapboxMap);
+}
+
+
+Future<void> _mostrarGeoJsonTlaxcala(mp.MapboxMap mapboxMap) async {
+  print("Iniciando carga del GeoJSON...");
+
+  final geoJsonData = await rootBundle.loadString('assets/geojson/tlaxcala_zonas.geojson');
+  print("GeoJSON cargado, tamaño: ${geoJsonData.length} caracteres");
+
+  try {
+    await mapboxMap.style.addSource(
+      mp.GeoJsonSource(id: "tlaxcala-source", data: geoJsonData),
+    );
+    print("Fuente 'tlaxcala-source' agregada al mapa");
+  } catch (e) {
+    print("Error agregando fuente: $e");
+  }
+
+  final filtroAlto = ['==', ['get', 'riesgo'], 'Alto'];
+  print("Filtro para riesgo alto definido: $filtroAlto");
+
+  final fillLayerAlto = mp.FillLayer(
+    id: "tlaxcala-layer-alto",
+    sourceId: "tlaxcala-source",
+    filter: filtroAlto,
+    fillColor: 0x80FF0000, 
+    fillOpacity: 0.5,
+  );
+
+  try {
+    await mapboxMap.style.addLayer(fillLayerAlto);
+    print("Capa de riesgo 'Alto' agregada al mapa");
+  } catch (e) {
+    print("Error agregando capa de riesgo: $e");
+  }
+
+  print("Proceso terminado");
+}
+
+void _abrirZonasRiesgo() async {
+  final codigos = await Navigator.push<List<String>>(
+    context,
+    MaterialPageRoute(builder: (context) => ZonasRiesgoScreen()),
+  );
+  if (codigos != null) {
+    setState(() {
+      codigosRiesgo = codigos;
+    });
+    if (mapboxMapController != null) {
+      await _mostrarGeoJsonTlaxcala(mapboxMapController!);
+    }
+  }
+}
+//
+
+
+
+// Contactos de emergencia
+Future<void> _modalTelefono(BuildContext context) async {
+  final theme = Theme.of(context);
+  final greenColor = theme.primaryColor;
+  final contrastColor = theme.appBarTheme.foregroundColor ?? Colors.white;
+  final userId = FirebaseAuth.instance.currentUser?.uid;
+
+  showModalBottomSheet(
+    context: context,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    backgroundColor: greenColor,
+    isScrollControlled: true,
+    builder: (context) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.phone, size: 35, color: contrastColor),
+            Text(
+              'Contactos de Emergencia',
+              style: theme.textTheme.titleLarge?.copyWith(
+                color: contrastColor,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 20),
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('contactos')
+                  .doc(userId)
+                  .collection('contactos_emergencia')
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return const CircularProgressIndicator();
+                }
+
+                final contactos = snapshot.data!.docs;
+
+                return ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: contactos.length,
+                  itemBuilder: (context, index) {
+                    final contacto = contactos[index];
+                    return _contactTile(
+                      context,
+                      contacto.id,
+                      contacto['nombre'],
+                      contacto['numero'],
+                    );
+                  },
+                );
+              },
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              onPressed: () => _mostrarFormularioAgregar(context),
+              icon: const Icon(Icons.add),
+              label: const Text('Agregar Contacto'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: contrastColor,
+                foregroundColor: greenColor,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+
+
 void _mostrarFormularioAgregar(BuildContext context) {
-  // Controladores para inputs de nombre y número
   final theme = Theme.of(context);
   final greenColor = theme.primaryColor;
   final _nombreController = TextEditingController();
@@ -1024,12 +624,11 @@ void _mostrarFormularioAgregar(BuildContext context) {
   final userId = FirebaseAuth.instance.currentUser?.uid;
   
 
-  // Mostrar diálogo para agregar contacto
   showDialog(
     
     context: context,
     builder: (_) => AlertDialog(
-      backgroundColor: greenColor, // Fondo verde
+      backgroundColor: greenColor,
       title: const Text("Agregar Contacto", style: TextStyle(color: Colors.white)),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1071,15 +670,14 @@ void _mostrarFormularioAgregar(BuildContext context) {
         ),
         ElevatedButton(
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.white, // Botón blanco
-            foregroundColor: greenColor, // Texto verde
+            backgroundColor: Colors.white, 
+            foregroundColor: greenColor, 
           ),
           onPressed: () async {
             final nombre = _nombreController.text.trim();
             final numero = _numeroController.text.trim();
             if (nombre.isEmpty || numero.isEmpty) return;
 
-            // Guardar contacto en Firestore
             await FirebaseFirestore.instance
                 .collection('contactos')
                 .doc(userId)
@@ -1098,22 +696,19 @@ void _mostrarFormularioAgregar(BuildContext context) {
     ),
   );
 }
-//
 
-//
+
 void _editarContacto(BuildContext context, String id, String nombreActual, String numeroActual) {
-  // Controladores inicializados con datos actuales del contacto
   final theme = Theme.of(context);
   final greenColor = theme.primaryColor;
   final _nombreController = TextEditingController(text: nombreActual);
   final _numeroController = TextEditingController(text: numeroActual);
   final userId = FirebaseAuth.instance.currentUser?.uid;
 
-  // Mostrar diálogo para editar contacto
 showDialog(
     context: context,
     builder: (_) => AlertDialog(
-      backgroundColor: greenColor, // Fondo verde
+      backgroundColor: greenColor,
       title: const Text("Editar Contacto", style: TextStyle(color: Colors.white)),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1155,11 +750,10 @@ showDialog(
         ),
         ElevatedButton(
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.white, // Botón blanco
-            foregroundColor: greenColor, // Texto verde
+            backgroundColor: Colors.white,
+            foregroundColor: greenColor,
           ),
           onPressed: () async {
-            // Actualizar contacto en Firestore
             await FirebaseFirestore.instance
                 .collection('contactos')
                 .doc(userId)
@@ -1177,13 +771,11 @@ showDialog(
     ),
   );
 }
-//
 
-//
+
 void _eliminarContacto(BuildContext context, String id) async {
   final userId = FirebaseAuth.instance.currentUser?.uid;
 
-  // Eliminar contacto en Firestore
   await FirebaseFirestore.instance
       .collection('contactos')
       .doc(userId)
@@ -1193,21 +785,17 @@ void _eliminarContacto(BuildContext context, String id) async {
 }
 
 Future<void> _llamarNumero(BuildContext context, String numero) async {
-  // Construir URI para llamada telefónica
   final Uri telUri = Uri(scheme: 'tel', path: numero);
 
   try {
-    // Intentar lanzar la llamada
     if (await canLaunchUrl(telUri)) {
       await launchUrl(telUri);
     } else {
-      // Mostrar mensaje si no es posible llamar
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('No se puede llamar a $numero')),
       );
     }
   } catch (e) {
-    // Mostrar error en snackbar si falla la llamada
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Error al intentar llamar: $e')),
     );
@@ -1215,14 +803,395 @@ Future<void> _llamarNumero(BuildContext context, String numero) async {
 }
 
 //
+
+
+
+
+
+
+// Alertas SOS
+Future<void> _enviarAlerta() async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return;
+
+  final uid = user.uid;
+  final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+
+  final nombre = userDoc.data()?['name'] ?? 'Usuario';
+  final phone = userDoc.data()?['phone'] ?? 'N/A';
+
+  gl.Position? posicion;
+  try {
+    bool servicioActivo = await gl.Geolocator.isLocationServiceEnabled();
+    if (!servicioActivo) {
+      print("GPS no está activo");
+    } else {
+      gl.LocationPermission permiso = await gl.Geolocator.checkPermission();
+      if (permiso == gl.LocationPermission.denied || permiso == gl.LocationPermission.deniedForever) {
+        permiso = await gl.Geolocator.requestPermission();
+      }
+      if (permiso != gl.LocationPermission.denied && permiso != gl.LocationPermission.deniedForever) {
+        posicion = await gl.Geolocator.getCurrentPosition(desiredAccuracy: gl.LocationAccuracy.high);
+      }
+    }
+  } catch (e) {
+    print("Error al obtener ubicación: $e");
+  }
+
+  final circulos = await FirebaseFirestore.instance
+      .collection('circulos')
+      .where('miembrosUids', arrayContains: uid)
+      .get();
+
+  WriteBatch batch = FirebaseFirestore.instance.batch();
+
+for (var doc in circulos.docs) {
+  final circleId = doc.id;
+
+  final miembrosUids = List<String>.from(doc.data()['miembrosUids'] ?? []);
+
+  Map<String, dynamic> alertaData = {
+    'circleId': circleId,
+    'mensaje': '¡$nombre ha enviado una alerta SOS!',
+    'emisorId': uid,
+    'name': nombre,
+    'phone': phone,
+    'timestamp': FieldValue.serverTimestamp(),
+    'destinatarios': miembrosUids,
+  };
+
+  if (posicion != null) {
+    alertaData['ubicacion'] = {
+      'lat': posicion.latitude,
+      'lng': posicion.longitude,
+    };
+  }
+
+  final alertaRef = FirebaseFirestore.instance.collection('alertasCirculos').doc();
+  batch.set(alertaRef, alertaData);
+}
+
+  await batch.commit();
+}
+
+
+
+void _escucharAlertasSmart() {
+  FirebaseFirestore.instance
+      .collection('alertas')
+      .orderBy('createdAt', descending: true)
+      .limit(1) 
+      .snapshots()
+      .listen((snapshot) {
+    if (snapshot.docs.isNotEmpty) {
+      final doc = snapshot.docs.first;
+      final data = doc.data();
+      final lat = (data['lat'] as num?)?.toDouble();
+      final lon = (data['lon'] as num?)?.toDouble();
+      final mensaje = data['mensaje']?.toString() ?? "Alerta sin mensaje";
+      final fecha = data['createdAt']?.toString() ?? "Sin fecha";
+
+      if (lat != null && lon != null) {
+        _mostrarAlertaEnMapa("$mensaje\n$fecha", lat, lon);
+      }
+    }
+  });
+}
+
+
+Future<void> irALaUltimaAlerta() async {
+  try {
+    final snapshot = await _ref.child('mensaje').get(); 
+    final data = snapshot.value as Map<dynamic, dynamic>?;
+
+    if (data != null) {
+      final double? lat = (data['latitud'] as num?)?.toDouble();
+      final double? lng = (data['longitud'] as num?)?.toDouble();
+      final String timestamp = data['timestamp']?.toString() ?? "Sin fecha";
+
+      if (lat != null && lng != null) {
+        _mostrarAlertaEnMapa("Alerta IoT\n$timestamp", lat, lng);
+      } else {
+        print("No hay coordenadas disponibles en la última alerta");
+      }
+    }
+  } catch (e) {
+    print("Error al obtener última alerta: $e");
+  }
+}
+
+
+
+void _mostrarAlertaEnMapa(String mensaje, double lat, double lng) async {
+  if (mapboxMapController == null) return;
+
+  await mapboxMapController!.flyTo(
+    mp.CameraOptions(
+      center: mp.Point(coordinates: mp.Position(lng, lat)),
+      zoom: 15.0,
+    ),
+    mp.MapAnimationOptions(duration: 1000),
+  );
+
+  if (pointAnnotationManager != null) {
+    await pointAnnotationManager!.create(
+      mp.PointAnnotationOptions(
+        geometry: mp.Point(coordinates: mp.Position(lng, lat)),
+        iconImage: "marker",
+        iconSize: 5.0,
+        textField: mensaje,
+        textOffset: [3, 3.0],
+      ),
+    );
+  }
+
+  if (!_dialogoAbierto) {
+    _dialogoAbierto = true;
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text("⚠ Alerta IoT"),
+        content: Text(mensaje),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _dialogoAbierto = false;
+            },
+            child: const Text("Cerrar"),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+void _escucharAlertasEnTiempoReal() {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null) return;
+
+  _alertasSubscription = FirebaseFirestore.instance
+      .collectionGroup('alertas')
+      .orderBy('timestamp', descending: true)
+      .snapshots()
+      .listen((snapshot) {
+    if (snapshot.docs.isEmpty) return;
+
+    final alerta = snapshot.docs.first;
+    final emisorId = alerta['emisorid'];
+    final timestamp = alerta['timestamp'] as Timestamp;
+
+    if ((_ultimoTimestampVisto == null || timestamp.compareTo(_ultimoTimestampVisto!) > 0) &&
+        emisorId != uid) {
+      setState(() {
+        _mostrarNotificacion = true;
+        _ultimoTimestampVisto = timestamp;
+      });
+    }
+  });
+}
+//
+
+
+// Marcadores de ubicación
+Future<void> _actualizarMarcador(
+    String uid, double lat, double lng, String nombre) async {
+  final ahora = DateTime.now();
+  final ultimo = _ultimoUpdateMarcador[uid];
+  if (ultimo != null && ahora.difference(ultimo).inMilliseconds < 500) {
+    return; 
+  }
+  _ultimoUpdateMarcador[uid] = ahora;
+
+  final posicion = mp.Point(coordinates: mp.Position(lng, lat));
+
+  try {
+    if (marcadores.containsKey(uid)) {
+      final marcadorExistente = marcadores[uid]!;
+      marcadorExistente.geometry = posicion;
+      marcadorExistente.textField = nombre;
+      await pointAnnotationManager!.update(marcadorExistente);
+    } else {
+      final nuevoMarcador = await pointAnnotationManager!.create(
+        mp.PointAnnotationOptions(
+          geometry: posicion,
+          iconImage: "marker",
+          iconSize: 4,
+          textField: nombre,
+          textOffset: [0, 3.0],
+          textSize: 13,
+          textHaloWidth: 1.0,
+        ),
+      );
+      marcadores[uid] = nuevoMarcador;
+    }
+  } catch (e) {
+    print("Error al actualizar marcador para $uid: $e");
+  }
+}
+
+
+
+Future<void> _limpiarEscuchasYMarcadores() async {
+  for (final sub in miembrosListeners.values) {
+    await sub.cancel();
+  }
+  miembrosListeners.clear();
+
+  if (pointAnnotationManager != null) {
+    for (var entry in marcadores.entries) {
+      await pointAnnotationManager!.delete(entry.value);
+    }
+  }
+
+  marcadores.clear();
+  _ultimoUpdateMarcador.clear();
+}
+
+//
+
+
+
+
+
+// Configuración del seguimiento de la posición del usuario
+Future<void> _setupPositionTracking() async {
+  print(" Iniciando seguimiento de ubicación...");
+
+  final serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
+  if (!serviceEnabled) {
+    print("⚠️ Servicio de ubicación desactivado");
+    return;
+  }
+
+  var permission = await gl.Geolocator.checkPermission();
+  if (permission == gl.LocationPermission.denied) {
+    permission = await gl.Geolocator.requestPermission();
+  }
+  if (permission == gl.LocationPermission.denied ||
+      permission == gl.LocationPermission.deniedForever) {
+    print("🚫 Permiso de ubicación denegado");
+    return;
+  }
+
+  userPositionStream = gl.Geolocator.getPositionStream(
+    locationSettings: const gl.LocationSettings(
+      accuracy: gl.LocationAccuracy.high,
+      distanceFilter: 50,
+    ),
+  ).listen((gl.Position? position) {
+    if (position == null) return;
+
+    print("Nueva ubicación: ${position.latitude}, ${position.longitude}");
+
+    final puntoUsuario = mp.Point(
+      coordinates: mp.Position(position.longitude, position.latitude),
+    );
+
+    if (circleAnnotationManager != null) {
+      _crearCirculoUsuario(puntoUsuario);
+    }
+  });
+}
+
+
+
+Future<void> _crearCirculoUsuario(mp.Point punto) async {
+  if (_primerZoomUsuario && mapboxMapController != null) {
+    await mapboxMapController!.flyTo(
+      mp.CameraOptions(
+        center: punto,
+        zoom: 15.0, 
+      ),
+      mp.MapAnimationOptions(duration: 1000), 
+    );
+    _primerZoomUsuario = false;
+  }
+
+  if (usuarioAnnotation != null) {
+    usuarioAnnotation!.geometry = punto;
+    await pointAnnotationManager?.update(usuarioAnnotation!);
+
+    if (usuarioTextoAnnotation != null) {
+      usuarioTextoAnnotation!.geometry = punto;
+      await pointAnnotationManager?.update(usuarioTextoAnnotation!);
+    }
+    return;
+  }
+
+
+  final ByteData bytes = await rootBundle.load("assets/user.png");
+  final Uint8List imageData = bytes.buffer.asUint8List();
+
+  usuarioAnnotation = await pointAnnotationManager?.create(
+    mp.PointAnnotationOptions(
+      geometry: punto,
+      image: imageData,
+      iconSize: 0.15,
+    ),
+  );
+
+  usuarioTextoAnnotation = await pointAnnotationManager?.create(
+    mp.PointAnnotationOptions(
+      geometry: punto,
+      textField: "Tú",
+      textSize: 16.0,
+      textOffset: [0, 2.0],
+      textColor: Colors.black.value,
+    ),
+  );
+}
+
+//
+
+
+// Inicialización del mapa y configuración de eventos
+void _onMapCreated(mp.MapboxMap controller) async {
+  setState(() {
+    mapboxMapController = controller;
+  });
+
+  final resultado = await Navigator.push<List<String>>(
+    context,
+    MaterialPageRoute(builder: (_) => ZonasRiesgoScreen()),
+  );
+
+  if (resultado != null) {
+    codigosRiesgo = resultado;
+    await _mostrarGeoJsonTlaxcala(controller);
+  }
+
+  await controller.location.updateSettings(
+    mp.LocationComponentSettings(enabled: true),
+  );
+
+  pointAnnotationManager = await controller.annotations.createPointAnnotationManager();
+  circleAnnotationManager = await controller.annotations.createCircleAnnotationManager();
+
+  if ((circuloSeleccionadoId == null || circuloSeleccionadoId!.isEmpty) &&
+      widget.circleId != null &&
+      widget.circleId!.isNotEmpty) {
+    circuloSeleccionadoId = widget.circleId;
+  }
+
+  if (circuloSeleccionadoId != null && circuloSeleccionadoId!.isNotEmpty) {
+    _escucharUbicacionesDelCirculo(circuloSeleccionadoId!);
+  } else {
+    print('No se ha seleccionado ningún círculo. No se puede escuchar ubicaciones!!!!');
+  }
+}
+//
+
+
+//Reporte histórico
 void _mostrarModalReporteHistorico(BuildContext context) {
   final TextEditingController descripcionController = TextEditingController();
   final user = FirebaseAuth.instance.currentUser;
 
-  // Mostrar un modal bottom sheet para capturar un nuevo reporte histórico
 showModalBottomSheet(
   context: context,
-  isScrollControlled: true, // Permite que el modal se ajuste con el teclado
+  isScrollControlled: true, 
   shape: const RoundedRectangleBorder(
     borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
   ),
@@ -1232,9 +1201,8 @@ showModalBottomSheet(
     final greenColor = theme.primaryColor;
     final orangeColor = theme.colorScheme.secondary;
     return Container(
-      color: greenColor, // Fondo verde para todo el modal
+      color: greenColor, 
       child: Padding(
-        // Ajustar padding inferior para evitar solapamiento con teclado y dar espacio
         padding: EdgeInsets.only(
           bottom: mediaQuery.viewInsets.bottom + 20,
           left: 20,
@@ -1242,7 +1210,7 @@ showModalBottomSheet(
           top: 20,
         ),
         child: Column(
-          mainAxisSize: MainAxisSize.min, // Ajustar tamaño vertical al contenido
+          mainAxisSize: MainAxisSize.min, 
           children: [
             Text(
             'Reporte',
@@ -1252,33 +1220,30 @@ showModalBottomSheet(
             ),
           ),
             const SizedBox(height: 15),
-            // Campo de texto para descripción del reporte
             TextField(
               controller: descripcionController,
               maxLines: 5,
               decoration: InputDecoration(
                 filled: true,
-                fillColor: Colors.white, // fondo blanco para el TextField
+                fillColor: Colors.white,
                 enabledBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: orangeColor), // borde naranja
+                  borderSide: BorderSide(color: orangeColor),
                 ),
                 focusedBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: orangeColor, width: 2), // borde naranja más grueso al enfocar
+                  borderSide: BorderSide(color: orangeColor, width: 2),
                 ),
                 labelText: 'Descripción',
                 hintText: 'Escribe aquí la descripción del reporte...',
               ),
             ),
             const SizedBox(height: 15),
-            // Botón para guardar el reporte
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white, // fondo blanco
+                backgroundColor: Colors.white,
               ),
               onPressed: () async {
                 final descripcion = descripcionController.text.trim();
 
-                // Validar que la descripción no esté vacía
                 if (descripcion.isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('La descripción no puede estar vacía')),
@@ -1286,17 +1251,14 @@ showModalBottomSheet(
                   return;
                 }
 
-                // Si no hay usuario autenticado, cerrar modal
                 if (user == null) {
                   Navigator.pop(context);
                   return;
                 }
 
-                // Obtener nombre del usuario desde Firestore
                 final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
                 final nombre = userDoc.data()?['name'] ?? 'Amsp';
 
-                // Intentar obtener la ubicación actual con permisos
                 gl.Position? posicion;
                 try {
                   bool servicioActivo = await gl.Geolocator.isLocationServiceEnabled();
@@ -1318,7 +1280,6 @@ showModalBottomSheet(
                   posicion = null;
                 }
 
-                // Construir mapa con datos del reporte a guardar
                 Map<String, dynamic> reporteData = {
                   'mensaje': descripcion,
                   'name': nombre,
@@ -1326,7 +1287,6 @@ showModalBottomSheet(
                   'uid': user.uid,
                 };
 
-                // Agregar ubicación si está disponible
                 if (posicion != null) {
                   reporteData['ubicacion'] = {
                     'lat': posicion.latitude,
@@ -1334,24 +1294,21 @@ showModalBottomSheet(
                   };
                 }
 
-                // Guardar el reporte en la subcolección reportes_historicos del usuario
                 await FirebaseFirestore.instance
                     .collection('users')
                     .doc(user.uid)
                     .collection('reportes_historicos')
                     .add(reporteData);
 
-                // Cerrar modal
                 Navigator.pop(context);
 
-                // Mostrar confirmación al usuario
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Reporte histórico guardado')),
                 );
               },
               child: Text(
                 'Guardar reporte',
-                style: TextStyle(color: greenColor), // texto verde
+                style: TextStyle(color: greenColor),
               ),
             ),
           ],
@@ -1363,29 +1320,27 @@ showModalBottomSheet(
 }
 //
 
-//
+
+// Mostrar modal de alerta SOS
 void _showSosModal(BuildContext context) {
-  int countdown = 5; // Cuenta regresiva en segundos
+  int countdown = 5;
   Timer? timer;
 
-  // Mostrar un diálogo que no se puede cerrar tocando fuera
   showDialog(
     context: context,
     barrierDismissible: false,
     builder: (context) {
-      // Usar StatefulBuilder para poder actualizar estado local (countdown)
       return StatefulBuilder(
         builder: (context, setState) {
-          // Inicializar temporizador solo una vez
           if (timer == null) {
             timer = Timer.periodic(const Duration(seconds: 1), (t) {
               if (countdown == 1) {
-                t.cancel(); // Detener temporizador cuando llegue a 1
-                Navigator.of(context).pop(); // Cerrar diálogo
-                _enviarAlerta(); // Enviar alerta SOS
+                t.cancel(); 
+                Navigator.of(context).pop();
+                _enviarAlerta();
               } else {
                 setState(() {
-                  countdown--; // Reducir contador cada segundo
+                  countdown--;
                 });
               }
             });
@@ -1416,11 +1371,10 @@ void _showSosModal(BuildContext context) {
               ],
             ),
             actions: [
-              // Botón para cancelar la alerta y cerrar el diálogo
               TextButton(
                 onPressed: () {
-                  timer?.cancel(); // Cancelar temporizador
-                  Navigator.of(context).pop(); // Cerrar diálogo
+                  timer?.cancel(); 
+                  Navigator.of(context).pop();
                 },
                 child: const Text(
                   'Cancelar',
@@ -1433,12 +1387,14 @@ void _showSosModal(BuildContext context) {
       );
     },
   ).then((_) {
-    timer?.cancel(); // Asegurar que el temporizador se cancela al cerrar el diálogo
+    timer?.cancel();
   });
 }
 //
 
-//
+
+
+// widget para mostrar un contacto de emergencia
 Widget _contactTile(BuildContext context, String id, String nombre, String numero) {
   return Container(
     margin: const EdgeInsets.only(bottom: 15),
@@ -1454,19 +1410,16 @@ Widget _contactTile(BuildContext context, String id, String nombre, String numer
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Botón para editar contacto
           IconButton(
             icon: const Icon(Icons.edit, color: Colors.black),
             onPressed: () => _editarContacto(context, id, nombre, numero),
           ),
-          // Botón para eliminar contacto
           IconButton(
             icon: const Icon(Icons.delete, color: Colors.black),
             onPressed: () => _eliminarContacto(context, id),
           ),
         ],
       ),
-      // Al pulsar la fila, se realiza llamada al número
       onTap: () {
         _llamarNumero(context, numero);
       },
@@ -1475,16 +1428,16 @@ Widget _contactTile(BuildContext context, String id, String nombre, String numer
 }
 //
 
-//
+
+
+// Construcción del widget principal de la página de inicio
 @override
 Widget build(BuildContext context) {
   final theme = Theme.of(context);
   final greenColor = theme.primaryColor;
   final contrastColor = theme.appBarTheme.foregroundColor ?? Colors.white;
-  final orangeColor = theme.colorScheme.secondary;
   final orangeTrans = const Color.fromARGB(221, 255, 120, 23);
 
-  // Mostrar indicador de carga mientras se obtiene info del usuario
   if (cargandoUsuario) {
     return const Scaffold(
       body: Center(child: CircularProgressIndicator()),
@@ -1495,7 +1448,6 @@ Widget build(BuildContext context) {
     appBar: AppBar(
       centerTitle: true,
       title: const Text('AMSP'),
-      // Botón de configuración a la izquierda
       leading: _iconButton(Icons.settings, () {
         Navigator.push(
           context,
@@ -1526,7 +1478,7 @@ Widget build(BuildContext context) {
           _iconButton(
             Icons.notifications,() {
             setState(() {
-            _mostrarNotificacion = false; // Oculta indicador al abrir notificaciones
+            _mostrarNotificacion = false;
             });
             Navigator.push(
             context,
@@ -1536,7 +1488,6 @@ Widget build(BuildContext context) {
         contrastColor,
         ),
 
-            // Pequeño círculo rojo indicador de notificaciones
             if (_mostrarNotificacion)
               Positioned(
                 right: 8,
@@ -1555,15 +1506,12 @@ Widget build(BuildContext context) {
         ),
       ],
     ),
-    // Cuerpo con mapa y botones posicionados
     body: Stack(
       children: [
-        // Widget del mapa de Mapbox
         mp.MapWidget(
           onMapCreated: _onMapCreated,
           styleUri: 'mapbox://styles/mapbox/streets-v12',
         ),
-        // Botón Familia arriba a la izquierda
         Positioned(
           top: 35,
           left: 16,
@@ -1582,7 +1530,7 @@ Widget build(BuildContext context) {
             child: ElevatedButton.icon(
               icon: const Icon(Icons.family_restroom, size: 20),
               label: const Text("Círculo"),
-              onPressed: _mostrarOpcionesFamilia,
+              onPressed: _mostrarOpcionesCirculo,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.transparent,
                 shadowColor: Colors.transparent,
@@ -1596,7 +1544,6 @@ Widget build(BuildContext context) {
             ),
           ),
         ),
-        // Botón Dispositivo arriba a la derecha
         Positioned(
           top: 35,
           right: 9,
@@ -1634,8 +1581,6 @@ Widget build(BuildContext context) {
             ),
           ),
         ),
-
-        // Botón de reporte histórico abajo a la izquierda
         Positioned(
           bottom: 37,
           left: 25,
@@ -1653,7 +1598,7 @@ Widget build(BuildContext context) {
             ),
             child: RawMaterialButton(
               onPressed: () => _mostrarModalReporteHistorico(context),
-              fillColor: orangeTrans, // Color para diferenciar botón
+              fillColor: orangeTrans,
               shape: const CircleBorder(),
               constraints: const BoxConstraints.tightFor(
                 width: 90,
@@ -1674,7 +1619,6 @@ Widget build(BuildContext context) {
         ),
       ],
     ),
-    // Botón flotante SOS abajo a la derecha
     floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     floatingActionButton: Padding(
       padding: const EdgeInsets.only(bottom: 20, right: 15),
@@ -1710,8 +1654,6 @@ Widget build(BuildContext context) {
         ),
       ),
     ),
-    //
-    // Barra de navegación inferior con íconos
     bottomNavigationBar: BottomAppBar(
       color: greenColor,
       child: Padding(
@@ -1719,25 +1661,21 @@ Widget build(BuildContext context) {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
-            // Icono para abrir zonas de riesgo
             _bottomIcon(Icons.location_on, () async {
               _abrirZonasRiesgo();
             }, contrastColor),
-            // Icono para pantalla familia
             _bottomIcon(Icons.family_restroom, () {
               Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const FamilyScreen()),
               );
             }, contrastColor),
-            // Icono para pantalla usuario
             _bottomIcon(Icons.person, () {
               Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const UserScreenCon()),
               );
             }, contrastColor),
-            // Icono para modal teléfono/contactos emergencia
             _bottomIcon(Icons.phone, () => _modalTelefono(context), contrastColor),
           ],
         ),
@@ -1745,18 +1683,15 @@ Widget build(BuildContext context) {
     ),
   );
 }
-//
 
-//
+// widget para el botón de icono
 Widget _iconButton(IconData icon, VoidCallback onPressed, Color color) {
   return IconButton(
     icon: Icon(icon, color: color, size: 40),
     onPressed: onPressed,
   );
 }
-//
 
-//
 Widget _bottomIcon(IconData icon, VoidCallback onPressed, Color color) {
   return IconButton(
     icon: Icon(icon, color: color, size: 40),
@@ -1764,4 +1699,6 @@ Widget _bottomIcon(IconData icon, VoidCallback onPressed, Color color) {
   );
 }
 //
+
+
 }
