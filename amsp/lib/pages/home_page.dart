@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:math';
 import 'package:amsp/pages/crear_circulo_screen.dart';
 import 'package:amsp/pages/zona_riesgo_screen.dart';
@@ -69,6 +70,8 @@ class _HomePageState extends State<HomePage> {
   Map<String, mp.PointAnnotation> miembrosTextAnnotations = {};
   Map<String, mp.Point> todasPosiciones = {};
   Map<String, mp.PointAnnotation> alertasAnnotations = {};
+  Map<String, Timestamp> _ultimoTimestampPorCirculo = {};
+  Map<String, StreamSubscription> _alertSubs = {};
 
 
   bool esCreadorFamilia = false;
@@ -78,6 +81,7 @@ class _HomePageState extends State<HomePage> {
   bool _dialogoAbierto = false;
   bool _primerZoomUsuario = true;
   bool _zoomAjustadoParaCirculo = false;
+  bool _yaCargoInicial = false;
 
   StreamSubscription? _alertasSubscription;
   StreamSubscription? _accelerometerSubscription;
@@ -86,7 +90,7 @@ class _HomePageState extends State<HomePage> {
   final AudioPlayer _player = AudioPlayer();
 
 
-
+  Set<String> _alertasProcesadas = {};
   String? circuloSeleccionadoId;
   String? circuloSeleccionadoNombre;
   String? _ultimoMensajeIot;
@@ -95,52 +99,58 @@ class _HomePageState extends State<HomePage> {
   List<String> codigosRiesgo = [];
   final Set<String> _alertasMostradasIds = {};
   final Set<String> _alertasMostradas = {};
+  
 
   Timestamp? _ultimoTimestampVisto; 
   DateTime _ultimaSacudida = DateTime.now().subtract(const Duration(seconds: 10));
+  DateTime _sessionStart = DateTime.now();
+
+
+final Map<String, bool> _initialCircleFetched = {};
+
 
 
 
 @override
 void initState() {
   super.initState();
-  _escucharAlertasSmart();
-  _escucharAlertasEnTiempoReal(); 
-  LocationService.startLocationUpdates(); 
-  cargarDatosUsuario(); 
+
+  LocationService.startLocationUpdates();
+  cargarDatosUsuario();
 
 
-  _ref.child('').once().then((event) {
-  final data = event.snapshot.value as Map?;
-  if (data != null && data["mensaje"] != null) {
-    _ultimoMensajeIot = data["mensaje"].toString();
-  }
-  irALaUltimaAlerta();
+  _ultimoTimestampPorCirculo = {};
+    Future.delayed(const Duration(seconds: 10), () {
+    _escucharAlertasTodosCirculos();
   });
 
+
   _ref.onValue.listen((event) {
-      final data = event.snapshot.value as Map<dynamic, dynamic>?;
-      if (data != null) {
-        final lat = (data['latitud'] as num?)?.toDouble();
-        final lng = (data['longitud'] as num?)?.toDouble();
-        final timestamp = data['timestamp']?.toString() ?? "Sin fecha";
-        if (lat != null && lng != null) {
-          _mostrarAlertaEnMapa("Alerta IoT\n$timestamp", lat, lng);
-        }
+    final data = event.snapshot.value as Map<dynamic, dynamic>?;
+    if (data != null) {
+      final mensaje = data['mensaje']?.toString() ?? '';
+      final lat = (data['latitud'] as num?)?.toDouble();
+      final lng = (data['longitud'] as num?)?.toDouble();
+      final timestamp = data['timestamp']?.toString() ?? "Sin fecha";
+
+      if (lat != null && lng != null) {
+        _mostrarAlertaEnMapa("Alerta IoT\n$timestamp", lat, lng);
       }
-    });
-
-
+    }
+  });
 
   _accelerometerSubscription = accelerometerEvents.listen((event) {
-    final double aceleracion = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
+    final double aceleracion = sqrt(
+      event.x * event.x + event.y * event.y + event.z * event.z,
+    );
 
     if (aceleracion > 30) {
       final ahora = DateTime.now();
       if (ahora.difference(_ultimaSacudida).inSeconds > 10) {
         _ultimaSacudida = ahora;
+
         if (!_mostrarModalAlerta) {
-          _showSosModal(context);
+          _showSosModal(context); // Solo se muestra cuando el usuario activa SOS
         }
       }
     }
@@ -151,13 +161,13 @@ void initState() {
 
 
 
-
   @override
   void dispose() {
     userPositionStream?.cancel();
     for (var sub in miembrosListeners.values) {
       sub.cancel();
     }
+    _cancelarEscuchasAlertas();
     miembrosListeners.clear();
     pointAnnotationManager?.deleteAll();
     _accelerometerSubscription?.cancel();
@@ -387,6 +397,244 @@ Future<void> _escucharUbicacionesDelCirculo(String circleId) async {
   }
 }
 
+final Set<String> _processedAlertIds = {};
+
+
+
+Future<void> _escucharAlertasTodosCirculos() async {
+  print('▶️ Iniciando _escucharAlertasTodosCirculos');
+  _cancelarEscuchasAlertas();
+  _initialCircleFetched.clear();
+
+  final currentUser = FirebaseAuth.instance.currentUser;
+  print('   currentUser: ${currentUser?.uid}');
+  if (currentUser == null) return;
+
+  final circulos = await _getCirculosUsuario();
+  final circleIds = circulos.map((d) => d.id).toList();
+  print('   círculos encontrados: $circleIds');
+  if (circleIds.isEmpty) return;
+
+  for (var id in circleIds) {
+    _ultimoTimestampPorCirculo.remove(id);
+  }
+
+  final query = FirebaseFirestore.instance
+    .collection('alertasCirculos')
+    .where('destinatarios', arrayContains: currentUser.uid)
+    .where('circleId', whereIn: circleIds)
+    .orderBy('timestamp', descending: true);
+
+  print('   creando listener global (saltando primer snapshot)');
+  final sub = query
+    .snapshots()
+    .skip(1)                      // <-- aquí descartas el snapshot inicial
+    .listen((snapshot) {
+      print('   🔔 snapshot recibe ${snapshot.docChanges.length} cambios');
+
+      for (var change in snapshot.docChanges) {
+        print('     · change.type=${change.type} docId=${change.doc.id}');
+        if (change.type != DocumentChangeType.added) continue;
+
+        final data = change.doc.data() as Map<String, dynamic>?;
+        if (data == null) continue;
+
+        final circleId = data['circleId'] as String?;
+        final emisor   = data['emisorId'] as String?;
+        if (circleId == null || emisor == currentUser.uid) continue;
+
+        final ts = data['timestamp'] as Timestamp?;
+        if (ts == null) continue;
+
+        final lastTs = _ultimoTimestampPorCirculo[circleId];
+        if (lastTs != null &&
+            ts.millisecondsSinceEpoch <= lastTs.millisecondsSinceEpoch) {
+          continue;
+        }
+
+        _ultimoTimestampPorCirculo[circleId] = ts;
+        _agregarAlerta(data);
+      }
+    }, onError: (e) {
+      print('   ❌ Error listener global: $e');
+    });
+
+  _alertSubs['global'] = sub;
+}
+
+
+
+
+final Queue<Map<String, dynamic>> _alertaQueue = Queue();
+
+// Agrega alerta a la cola (si no es del usuario actual)
+void _agregarAlerta(Map<String, dynamic> alerta) {
+  final currentUser = FirebaseAuth.instance.currentUser;
+  if (currentUser != null && alerta['emisorId'] == currentUser.uid) return; // Ignorar propia alerta
+
+  // Si ya hay un diálogo abierto o ya existe algo en cola, no encolamos
+  if (_dialogoAbierto || _alertaQueue.isNotEmpty) {
+    print('⚠️ Ignorando alerta porque ya hay un modal en proceso');
+    return;
+  }
+
+  _alertaQueue.add(alerta);
+  _procesarAlertas();
+}
+
+// Procesa la cola de alertas
+void _procesarAlertas() async {
+  if (_dialogoAbierto || _alertaQueue.isEmpty) return;
+
+  final alerta = _alertaQueue.removeFirst();
+  _dialogoAbierto = true;
+
+  // Reproducir sonido en loop
+  await _player.stop();
+  _player.setReleaseMode(ReleaseMode.loop);
+  await _player.play(AssetSource('sounds/alert.mp3'));
+
+  // Opcional: centrar el mapa
+  if (mapboxMapController != null) {
+    await mapboxMapController!.flyTo(
+      mp.CameraOptions(
+        center: mp.Point(
+          coordinates: mp.Position(
+            alerta['ubicacion']['lng'],
+            alerta['ubicacion']['lat'],
+          ),
+        ),
+        zoom: 16.0,
+      ),
+      mp.MapAnimationOptions(duration: 1000),
+    );
+  }
+
+  // Mostramos el modal y garantizamos siempre el reset y stop de audio
+  await showDialog(
+    context: context,
+    barrierDismissible: false, // forzamos sólo cerrar con el botón
+    builder: (_) => AlertDialog(
+      backgroundColor: Colors.red,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      title: Row(
+        children: const [
+          Icon(Icons.warning, color: Colors.white),
+          SizedBox(width: 8),
+          Text(
+            "Alerta SOS",
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 20,
+            ),
+          ),
+        ],
+      ),
+      content: Text(
+        alerta['mensaje'],
+        style: const TextStyle(color: Colors.white, fontSize: 16),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          style: TextButton.styleFrom(
+            foregroundColor: Colors.white,
+            backgroundColor: Colors.red,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+          child: const Text(
+            "Cerrar",
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ),
+      ],
+    ),
+  ).whenComplete(() async {
+    // Siempre al cerrar el diálogo:
+    _dialogoAbierto = false;
+    await _player.stop();
+    _procesarAlertas(); // para continuar con la siguiente alerta
+  });
+}
+
+
+void _mostrarModalAlertaSOS(String mensaje, double lat, double lng) async {
+    _dialogoAbierto = true;
+
+    _player.setReleaseMode(ReleaseMode.loop);
+    await _player.play(AssetSource('sounds/alert.mp3'));
+
+    if (mapboxMapController != null) {
+      await mapboxMapController!.flyTo(
+        mp.CameraOptions(
+          center: mp.Point(coordinates: mp.Position(lng, lat)),
+          zoom: 16.0,
+        ),
+        mp.MapAnimationOptions(duration: 1000),
+      );
+    }
+
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (_) => AlertDialog(
+        backgroundColor: Colors.red,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.warning, color: Colors.white),
+            SizedBox(width: 8),
+            Text(
+              "Alerta SOS",
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 20,
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          mensaje,
+          style: const TextStyle(color: Colors.white, fontSize: 16),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _dialogoAbierto = false;
+              _player.stop();
+            },
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.white,
+              backgroundColor: Colors.red,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+            ),
+            child: const Text(
+              "Cerrar",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _cancelarEscuchasAlertas() {
+    for (var sub in _alertSubs.values) {
+      sub.cancel();
+    }
+    _alertSubs.clear();
+  }
+
+
+
 
 Future<void> _moverMarcadorFluido(
     String uid, mp.Point destino, String name) async {
@@ -447,8 +695,8 @@ Future<void> _actualizarMarcadorMiembro(
       mp.PointAnnotationOptions(
         geometry: punto,
         image: imageData,
-        iconSize: 0.30,
-        iconOffset: [0, -2],
+        iconSize: 0.24,
+        iconOffset: [0, -1],
       ),
     );
     miembrosAnnotations[uid] = annotation!;
@@ -458,7 +706,7 @@ Future<void> _actualizarMarcadorMiembro(
         geometry: punto,
         textField: name,
         textSize: 18.0,
-        textOffset: [0, 2.0],
+        textOffset: [0, 1.5],
         textColor: const Color.fromARGB(255, 0, 0, 0).value,
         textHaloColor: Colors.white.value,
         textHaloWidth: 3,

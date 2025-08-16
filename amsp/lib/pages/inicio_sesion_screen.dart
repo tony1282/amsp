@@ -40,105 +40,106 @@ class InicioSesion extends StatelessWidget {
     final theme = Theme.of(context);
     final greenColor = theme.primaryColor;
     final contrastColor = theme.appBarTheme.foregroundColor ?? Colors.white;
+    final mediaQuery = MediaQuery.of(context);
+    final screenHeight = mediaQuery.size.height;
+    final screenWidth = mediaQuery.size.width;
 
     return Scaffold(
       backgroundColor: Colors.white,
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          return SingleChildScrollView(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
-              child: IntrinsicHeight(
-                child: SafeArea(
-                  child: Center(
-                    child: Column(
-                      children: [
-                        const SizedBox(height: 84),
+      body: SafeArea(
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.max,
+            children: [
+              SizedBox(height: screenHeight * 0.1),
 
-                        const CircleAvatar(
-                          radius: 60,
-                          backgroundImage: AssetImage('assets/images1.jpg'),
-                        ),
-                        const SizedBox(height: 10),
+              CircleAvatar(
+                radius: screenWidth * 0.15,
+                backgroundImage: const AssetImage('assets/images1.jpg'),
+              ),
+              SizedBox(height: screenHeight * 0.01),
 
-                        Center(
-                          child: Text(
-                            'AMSP',
-                            textAlign: TextAlign.center,
-                            style: theme.textTheme.headlineSmall?.copyWith(
-                                  color: Colors.black,
-                                  fontWeight: FontWeight.bold,
-                                ) ??
-                                const TextStyle(
-                                  color: Colors.black,
-                                  fontSize: 40,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                          ),
-                        ),
+              Center(
+                child: Text(
+                  'AMSP',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                        color: Colors.black,
+                        fontWeight: FontWeight.bold,
+                        fontSize: screenWidth * 0.1,
+                      ) ??
+                      TextStyle(
+                        color: Colors.black,
+                        fontSize: screenWidth * 0.1,
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+              ),
 
-                        const Spacer(),
+              const Spacer(),
 
-                        // Botón Google
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: greenColor,
-                            foregroundColor: contrastColor,
-                            padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 20),
-                            textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                          onPressed: () => _signInWithGoogle(context),
-                          child: const Text('Iniciar sesión con Google'),
-                        ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: greenColor,
+                  foregroundColor: contrastColor,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: screenWidth * 0.1,
+                    vertical: screenHeight * 0.02,
+                  ),
+                  textStyle: TextStyle(
+                    fontSize: screenWidth * 0.045,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: () => _signInWithGoogle(context),
+                child: const Text('Iniciar sesión con Google'),
+              ),
 
-                        const SizedBox(height: 12),
+              SizedBox(height: screenHeight * 0.015),
 
-                        // Separador con texto "o"
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: const [
-                            Text(
-                              'o',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black,
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        // Texto como enlace para iniciar sesión con correo
-                        GestureDetector(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(builder: (context) => const LoginEmailScreen()),
-                            );
-                          },
-                          child: Text(
-                            'Iniciar sesión con correo electrónico',
-                            style: TextStyle(
-                              color: greenColor,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              decoration: TextDecoration.underline,
-                            ),
-                          ),
-                        ),
-
-                        const SizedBox(height: 249),
-                      ],
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: const [
+                  Text(
+                    'o',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
                     ),
+                  ),
+                ],
+              ),
+
+              SizedBox(height: screenHeight * 0.015),
+
+              GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const LoginEmailScreen(),
+                    ),
+                  );
+                },
+                child: Text(
+                  'Iniciar sesión con correo electrónico',
+                  style: TextStyle(
+                    color: greenColor,
+                    fontSize: screenWidth * 0.04,
+                    fontWeight: FontWeight.bold,
+                    decoration: TextDecoration.underline,
                   ),
                 ),
               ),
-            ),
-          );
-        },
+
+              SizedBox(height: screenHeight * 0.25),
+            ],
+          ),
+        ),
       ),
     );
   }
