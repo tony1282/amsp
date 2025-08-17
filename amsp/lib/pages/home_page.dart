@@ -72,6 +72,7 @@ class _HomePageState extends State<HomePage> {
   Map<String, mp.PointAnnotation> alertasAnnotations = {};
   Map<String, Timestamp> _ultimoTimestampPorCirculo = {};
   Map<String, StreamSubscription> _alertSubs = {};
+  
 
 
   bool esCreadorFamilia = false;
@@ -82,12 +83,16 @@ class _HomePageState extends State<HomePage> {
   bool _primerZoomUsuario = true;
   bool _zoomAjustadoParaCirculo = false;
   bool _yaCargoInicial = false;
+  bool _seguirUsuarioTemporal = true;
+  bool _seguirUsuario = true;
+
 
   StreamSubscription? _alertasSubscription;
   StreamSubscription? _accelerometerSubscription;
 
   final DatabaseReference _ref = FirebaseDatabase.instance.ref();
   final AudioPlayer _player = AudioPlayer();
+  final Set<String> _processedAlertIds = {};
 
 
   Set<String> _alertasProcesadas = {};
@@ -114,10 +119,10 @@ final Map<String, bool> _initialCircleFetched = {};
 @override
 void initState() {
   super.initState();
-
   LocationService.startLocationUpdates();
   cargarDatosUsuario();
-
+  _escucharAlertasSmart();
+  _escucharAlertasEnTiempoReal();
 
   _ultimoTimestampPorCirculo = {};
     Future.delayed(const Duration(seconds: 10), () {
@@ -150,7 +155,7 @@ void initState() {
         _ultimaSacudida = ahora;
 
         if (!_mostrarModalAlerta) {
-          _showSosModal(context); // Solo se muestra cuando el usuario activa SOS
+          _showSosModal(context); 
         }
       }
     }
@@ -321,6 +326,7 @@ Future<void> _mostrarModalSeleccionCirculo() async {
                               setState(() {
                                 circuloSeleccionadoId = doc.id;
                                 circuloSeleccionadoNombre = nombre;
+                                _seguirUsuario = false; 
                               });
                               Navigator.pop(context);
                               if (mapboxMapController != null) {
@@ -338,6 +344,7 @@ Future<void> _mostrarModalSeleccionCirculo() async {
     },
   );
 }
+
 
 
 Future<void> _escucharUbicacionesDelCirculo(String circleId) async {
@@ -383,10 +390,8 @@ Future<void> _escucharUbicacionesDelCirculo(String circleId) async {
 
       final puntoNuevo = mp.Point(coordinates: mp.Position(lng, lat));
 
-      // Guardar el nuevo destino y mover suavemente
       _moverMarcadorFluido(uid, puntoNuevo, name);
 
-      // Ajustar zoom solo la primera vez
       if (!_zoomAjustadoParaCirculo && mapboxMapController != null) {
         todasPosiciones[uid] = puntoNuevo;
         await _ajustarZoomParaTodos(todasPosiciones, forzar: true);
@@ -397,22 +402,22 @@ Future<void> _escucharUbicacionesDelCirculo(String circleId) async {
   }
 }
 
-final Set<String> _processedAlertIds = {};
+
 
 
 
 Future<void> _escucharAlertasTodosCirculos() async {
-  print('▶️ Iniciando _escucharAlertasTodosCirculos');
+  print('Iniciando _escucharAlertasTodosCirculos');
   _cancelarEscuchasAlertas();
   _initialCircleFetched.clear();
 
   final currentUser = FirebaseAuth.instance.currentUser;
-  print('   currentUser: ${currentUser?.uid}');
+  print('currentUser: ${currentUser?.uid}');
   if (currentUser == null) return;
 
   final circulos = await _getCirculosUsuario();
   final circleIds = circulos.map((d) => d.id).toList();
-  print('   círculos encontrados: $circleIds');
+  print('círculos encontrados: $circleIds');
   if (circleIds.isEmpty) return;
 
   for (var id in circleIds) {
@@ -428,12 +433,12 @@ Future<void> _escucharAlertasTodosCirculos() async {
   print('   creando listener global (saltando primer snapshot)');
   final sub = query
     .snapshots()
-    .skip(1)                      // <-- aquí descartas el snapshot inicial
+    .skip(1)          
     .listen((snapshot) {
-      print('   🔔 snapshot recibe ${snapshot.docChanges.length} cambios');
+      print('snapshot recibe ${snapshot.docChanges.length} cambios');
 
       for (var change in snapshot.docChanges) {
-        print('     · change.type=${change.type} docId=${change.doc.id}');
+        print('change.type=${change.type} docId=${change.doc.id}');
         if (change.type != DocumentChangeType.added) continue;
 
         final data = change.doc.data() as Map<String, dynamic>?;
@@ -456,7 +461,7 @@ Future<void> _escucharAlertasTodosCirculos() async {
         _agregarAlerta(data);
       }
     }, onError: (e) {
-      print('   ❌ Error listener global: $e');
+      print('Error listener global: $e');
     });
 
   _alertSubs['global'] = sub;
@@ -467,14 +472,16 @@ Future<void> _escucharAlertasTodosCirculos() async {
 
 final Queue<Map<String, dynamic>> _alertaQueue = Queue();
 
-// Agrega alerta a la cola (si no es del usuario actual)
 void _agregarAlerta(Map<String, dynamic> alerta) {
   final currentUser = FirebaseAuth.instance.currentUser;
-  if (currentUser != null && alerta['emisorId'] == currentUser.uid) return; // Ignorar propia alerta
+  final docId = alerta['docId'] ?? '';
+  if (currentUser != null && alerta['emisorId'] == currentUser.uid) return;
+  if (_processedAlertIds.contains(docId)) return;
 
-  // Si ya hay un diálogo abierto o ya existe algo en cola, no encolamos
+  _processedAlertIds.add(docId);
+
   if (_dialogoAbierto || _alertaQueue.isNotEmpty) {
-    print('⚠️ Ignorando alerta porque ya hay un modal en proceso');
+    print('Ignorando alerta porque ya hay un modal en proceso');
     return;
   }
 
@@ -482,19 +489,18 @@ void _agregarAlerta(Map<String, dynamic> alerta) {
   _procesarAlertas();
 }
 
-// Procesa la cola de alertas
 void _procesarAlertas() async {
   if (_dialogoAbierto || _alertaQueue.isEmpty) return;
 
   final alerta = _alertaQueue.removeFirst();
   _dialogoAbierto = true;
 
-  // Reproducir sonido en loop
+  _seguirUsuario = false;
+
   await _player.stop();
   _player.setReleaseMode(ReleaseMode.loop);
   await _player.play(AssetSource('sounds/alert.mp3'));
 
-  // Opcional: centrar el mapa
   if (mapboxMapController != null) {
     await mapboxMapController!.flyTo(
       mp.CameraOptions(
@@ -510,10 +516,9 @@ void _procesarAlertas() async {
     );
   }
 
-  // Mostramos el modal y garantizamos siempre el reset y stop de audio
   await showDialog(
     context: context,
-    barrierDismissible: false, // forzamos sólo cerrar con el botón
+    barrierDismissible: false,
     builder: (_) => AlertDialog(
       backgroundColor: Colors.red,
       shape: RoundedRectangleBorder(
@@ -555,76 +560,13 @@ void _procesarAlertas() async {
       ],
     ),
   ).whenComplete(() async {
-    // Siempre al cerrar el diálogo:
     _dialogoAbierto = false;
     await _player.stop();
-    _procesarAlertas(); // para continuar con la siguiente alerta
+    _procesarAlertas();
   });
 }
 
 
-void _mostrarModalAlertaSOS(String mensaje, double lat, double lng) async {
-    _dialogoAbierto = true;
-
-    _player.setReleaseMode(ReleaseMode.loop);
-    await _player.play(AssetSource('sounds/alert.mp3'));
-
-    if (mapboxMapController != null) {
-      await mapboxMapController!.flyTo(
-        mp.CameraOptions(
-          center: mp.Point(coordinates: mp.Position(lng, lat)),
-          zoom: 16.0,
-        ),
-        mp.MapAnimationOptions(duration: 1000),
-      );
-    }
-
-    await showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (_) => AlertDialog(
-        backgroundColor: Colors.red,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: const [
-            Icon(Icons.warning, color: Colors.white),
-            SizedBox(width: 8),
-            Text(
-              "Alerta SOS",
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          mensaje,
-          style: const TextStyle(color: Colors.white, fontSize: 16),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _dialogoAbierto = false;
-              _player.stop();
-            },
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.white,
-              backgroundColor: Colors.red,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8)),
-            ),
-            child: const Text(
-              "Cerrar",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   void _cancelarEscuchasAlertas() {
     for (var sub in _alertSubs.values) {
@@ -641,7 +583,6 @@ Future<void> _moverMarcadorFluido(
   final marcador = miembrosAnnotations[uid];
   final texto = miembrosTextAnnotations[uid];
 
-  // Si no existe el marcador, lo creamos
   if (marcador == null || texto == null) {
     await _actualizarMarcadorMiembro(
       uid,
@@ -653,8 +594,8 @@ Future<void> _moverMarcadorFluido(
   }
 
   final origen = marcador.geometry!;
-  final frames = 30; // 30 pasos → ~1 segundo
-  const frameDelay = Duration(milliseconds: 33); // ≈ 30 FPS
+  final frames = 30; 
+  const frameDelay = Duration(milliseconds: 33);
 
   for (int i = 1; i <= frames; i++) {
     final t = i / frames;
@@ -1174,31 +1115,32 @@ Future<void> _enviarAlerta() async {
 
   WriteBatch batch = FirebaseFirestore.instance.batch();
 
-for (var doc in circulos.docs) {
-  final circleId = doc.id;
+  for (var doc in circulos.docs) {
+    final circleId = doc.id;
 
-  final miembrosUids = List<String>.from(doc.data()['miembrosUids'] ?? []);
+    final miembrosUids = List<String>.from(doc.data()['miembrosUids'] ?? []);
 
-  Map<String, dynamic> alertaData = {
-    'circleId': circleId,
-    'mensaje': '¡$nombre ha enviado una alerta SOS!',
-    'emisorId': uid,
-    'name': nombre,
-    'phone': phone,
-    'timestamp': FieldValue.serverTimestamp(),
-    'destinatarios': miembrosUids,
-  };
-
-  if (posicion != null) {
-    alertaData['ubicacion'] = {
-      'lat': posicion.latitude,
-      'lng': posicion.longitude,
+    Map<String, dynamic> alertaData = {
+      'circleId': circleId,
+      'mensaje': '¡$nombre ha enviado una alerta SOS!',
+      'emisorId': uid,
+      'name': nombre,
+      'phone': phone,
+      'timestamp': FieldValue.serverTimestamp(),
+      'destinatarios': miembrosUids,
+      'activa': true,
     };
-  }
 
-  final alertaRef = FirebaseFirestore.instance.collection('alertasCirculos').doc();
-  batch.set(alertaRef, alertaData);
-}
+    if (posicion != null) {
+      alertaData['ubicacion'] = {
+        'lat': posicion.latitude,
+        'lng': posicion.longitude,
+      };
+    }
+
+    final alertaRef = FirebaseFirestore.instance.collection('alertasCirculos').doc();
+    batch.set(alertaRef, alertaData);
+  }
 
   await batch.commit();
 }
@@ -1303,6 +1245,9 @@ void _mostrarAlertaEnMapa(String mensaje, double lat, double lng, {Timestamp? cr
   if (!_dialogoAbierto) {
     _dialogoAbierto = true;
 
+    //
+    _seguirUsuario = false;
+
     _player.setReleaseMode(ReleaseMode.loop);
     await _player.play(AssetSource('sounds/alert.mp3'));
 
@@ -1325,27 +1270,27 @@ void _mostrarAlertaEnMapa(String mensaje, double lat, double lng, {Timestamp? cr
             ),
           ],
         ),
-      content: Column(
-      mainAxisSize: MainAxisSize.min,
-       crossAxisAlignment: CrossAxisAlignment.start,
-       children: [
-       Text(
-       mensaje,
-       style: const TextStyle(
-          fontSize: 16,
-          color: Colors.white,
-      ),
-    ),
-    const SizedBox(height: 8),
-    Text(
-      "Ubicación: ${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}",
-      style: const TextStyle(
-        fontSize: 14,
-        color: Colors.white,
-      ),
-    ),
-  ],
-),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              mensaje,
+              style: const TextStyle(
+                fontSize: 16,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "Ubicación: ${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}",
+              style: const TextStyle(
+                fontSize: 14,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
         actions: [
           TextButton(
             onPressed: () {
@@ -1457,7 +1402,7 @@ Future<void> _ajustarZoomParaTodos(Map<String, mp.Point> posiciones, {bool forza
 
 
 // Configuración del seguimiento de la posición del usuario
-bool _seguirUsuario = true; // modo seguimiento activado por defecto
+
 
 Future<void> _setupPositionTracking() async {
   final serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
@@ -1490,7 +1435,6 @@ Future<void> _setupPositionTracking() async {
       coordinates: mp.Position(position.longitude, position.latitude),
     );
 
-    // 📌 Solo mover cámara si _seguirUsuario está activo
     if (_seguirUsuario) {
       await mapboxMapController!.easeTo(
         mp.CameraOptions(center: puntoUsuario, zoom: 15.0),
@@ -1500,12 +1444,10 @@ Future<void> _setupPositionTracking() async {
   });
 }
 
-// 📌 Llamar a esto cuando el usuario toque un botón "Seguirme"
 void activarSeguimiento() {
   _seguirUsuario = true;
 }
 
-// 📌 Llamar a esto cuando quiera ver otros miembros
 void desactivarSeguimiento() {
   _seguirUsuario = false;
 }
@@ -1805,6 +1747,7 @@ Widget build(BuildContext context) {
   final greenColor = theme.primaryColor;
   final contrastColor = theme.appBarTheme.foregroundColor ?? Colors.white;
   final orangeTrans = const Color.fromARGB(221, 255, 120, 23);
+  final screenHeight = MediaQuery.of(context).size.height;
 
   if (cargandoUsuario) {
     return const Scaffold(
@@ -1823,20 +1766,7 @@ Widget build(BuildContext context) {
         );
       }, contrastColor),
       actions: [
-        IconButton(
-          icon: const Icon(Icons.location_pin),
-          tooltip: 'Ir a la última alerta',
-          onPressed: () async {
-            await irALaUltimaAlerta();
-          },
-        ),
-        IconButton(
-          icon: const Icon(Icons.location_city_outlined),
-          tooltip: 'Ir a la última alerta',
-          onPressed: () async {
-            _escucharAlertasSmart();
-          },
-        ),
+     
         Stack(
           children: [
             _iconButton(
@@ -1877,7 +1807,7 @@ Widget build(BuildContext context) {
           styleUri: 'mapbox://styles/mapbox/streets-v12',
         ),
         Positioned(
-          top: 35,
+          top: screenHeight * 0.03,
           left: 16,
           child: Container(
             decoration: BoxDecoration(
@@ -1909,8 +1839,8 @@ Widget build(BuildContext context) {
           ),
         ),
         Positioned(
-          top: 35,
-          right: 9,
+          top: screenHeight * 0.03,
+          right: 16,
           child: Container(
             decoration: BoxDecoration(
               color: orangeTrans,
@@ -1965,8 +1895,8 @@ Widget build(BuildContext context) {
               fillColor: orangeTrans,
               shape: const CircleBorder(),
               constraints: const BoxConstraints.tightFor(
-                width: 90,
-                height: 90,
+                width: 110,
+                height: 110,
               ),
               elevation: 0,
               child: const Text(
@@ -2003,8 +1933,8 @@ Widget build(BuildContext context) {
           fillColor: Colors.red,
           shape: const CircleBorder(),
           constraints: const BoxConstraints.tightFor(
-            width: 90,
-            height: 90,
+            width: 110,
+            height: 110,
           ),
           elevation: 0,
           child: const Text(
@@ -2052,14 +1982,14 @@ Widget build(BuildContext context) {
 
 Widget _iconButton(IconData icon, VoidCallback onPressed, Color color) {
   return IconButton(
-    icon: Icon(icon, color: color, size: 40),
+    icon: Icon(icon, color: color, size: 45),
     onPressed: onPressed,
   );
 }
 
 Widget _bottomIcon(IconData icon, VoidCallback onPressed, Color color) {
   return IconButton(
-    icon: Icon(icon, color: color, size: 40),
+    icon: Icon(icon, color: color, size: 45),
     onPressed: onPressed,
   );
 }

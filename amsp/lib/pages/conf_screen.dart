@@ -11,7 +11,6 @@ import 'conf_help_screen.dart';
 class ConfScreen extends StatelessWidget {
   const ConfScreen({super.key});
 
-  // Colores personalizados
   static const Color orangeColor = Color(0xFFF47405);
   static const Color backgroundColor = Color(0xFF248448);
 
@@ -47,11 +46,9 @@ class ConfScreen extends StatelessWidget {
             ]),
             const SizedBox(height: 20),
 
-            // Botón de cerrar sesión
             Center(
               child: ElevatedButton(
                 onPressed: () {
-                  // TODO: Agregar lógica de cerrar sesión
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: orangeColor,

@@ -4,7 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:amsp/models/user_model.dart';
-import 'mostrar_codigo_screen.dart'; // Pantalla que muestra el código generado
+import 'mostrar_codigo_screen.dart'; 
 
 class CrearCirculoScreen extends StatefulWidget {
   const CrearCirculoScreen({super.key});

@@ -17,7 +17,6 @@ class _AgregarDispositivoScreenState extends State<AgregarDispositivoScreen>
   String _battery = '—';
   String _lastSync = '—';
 
-  // Animación suave (scale + opacity) para la tarjeta al conectar
   late final AnimationController _controller;
   late final Animation<double> _scale;
   late final Animation<double> _fade;
@@ -48,7 +47,6 @@ class _AgregarDispositivoScreenState extends State<AgregarDispositivoScreen>
   Future<void> _verificarConexion() async {
     setState(() => _checking = true);
 
-    // Simulación de escaneo/conexión (2 segundos)
     await Future.delayed(const Duration(seconds: 2));
 
     setState(() {
@@ -59,7 +57,6 @@ class _AgregarDispositivoScreenState extends State<AgregarDispositivoScreen>
       _lastSync = _timestampNow();
     });
 
-    // Dispara animación cuando se conecta
     _controller.forward(from: 0);
 
     if (mounted) {
@@ -77,7 +74,6 @@ class _AgregarDispositivoScreenState extends State<AgregarDispositivoScreen>
       _lastSync = '—';
     });
 
-    // Reinicia estado visual
     _controller.reset();
 
     ScaffoldMessenger.of(
@@ -114,10 +110,8 @@ class _AgregarDispositivoScreenState extends State<AgregarDispositivoScreen>
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // 👉 subí la tarjeta: menos espacio arriba, más abajo
             const Spacer(flex: 1),
 
-            // Tarjeta con animaciones
             ScaleTransition(
               scale: _scale,
               child: FadeTransition(
@@ -125,7 +119,6 @@ class _AgregarDispositivoScreenState extends State<AgregarDispositivoScreen>
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 250),
                   curve: Curves.easeOut,
-                  // cambia levemente la sombra/tono al conectar
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
                     boxShadow: [
@@ -238,7 +231,6 @@ class _AgregarDispositivoScreenState extends State<AgregarDispositivoScreen>
                           const Divider(height: 1),
                           const SizedBox(height: 8),
 
-                          // Detalles del dispositivo
                           Row(
                             children: [
                               _InfoChip(

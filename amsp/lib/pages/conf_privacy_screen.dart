@@ -19,7 +19,7 @@ class PrivacidadScreen extends StatelessWidget {
       ),
       body: Padding(
         padding: const EdgeInsets.all(20),
-        child: SingleChildScrollView( // <-- Aquí la única adición
+        child: SingleChildScrollView(
           child: Column(
             children: [
               buildOrangeContainer(

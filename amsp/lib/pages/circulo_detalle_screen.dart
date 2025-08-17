@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'family_screen.dart';
 
 class CirculoDetalleScreen extends StatefulWidget {
   final String circleId;
@@ -133,7 +134,14 @@ class _CirculoDetalleScreenState extends State<CirculoDetalleScreen> {
         await doc.reference.delete();
       }
       await _firestore.collection('circulos').doc(widget.circleId).delete();
-      if (mounted) Navigator.pop(context);
+
+      if (mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const FamilyScreen()),
+          (route) => false,
+        );
+      }
     } catch (_) {}
   }
 
@@ -141,6 +149,7 @@ class _CirculoDetalleScreenState extends State<CirculoDetalleScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final greenColor = theme.primaryColor;
+    final size = MediaQuery.of(context).size;
 
     if (_circleData == null) {
       return Scaffold(
@@ -158,20 +167,13 @@ class _CirculoDetalleScreenState extends State<CirculoDetalleScreen> {
       resizeToAvoidBottomInset: true,
       body: SingleChildScrollView(
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.symmetric(horizontal: size.width * 0.05, vertical: 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Código del círculo
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                margin: const EdgeInsets.only(bottom: 20),
-                decoration: BoxDecoration(
-                  color: greenColor,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Column(
+              _buildGreenContainer(
+                greenColor,
+                Column(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     const Text('Código del círculo:', style: TextStyle(color: Colors.white, fontSize: 16)),
@@ -183,45 +185,24 @@ class _CirculoDetalleScreenState extends State<CirculoDetalleScreen> {
                   ],
                 ),
               ),
-
-              // Nombre y Tipo
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                margin: const EdgeInsets.only(bottom: 20),
-                decoration: BoxDecoration(
-                  color: greenColor,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Column(
+              _buildGreenContainer(
+                greenColor,
+                Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text('Círculo', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 10),
-                    const Text(
-                      'Nombre del círculo',
-                      style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
-                    ),
+                    const Text('Nombre del círculo', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
                     _buildEditableFieldModal('Nombre', () => _mostrarModalEdicion(editarNombre: true), _nombreController.text),
                     const SizedBox(height: 15),
-                    const Text(
-                      'Tipo de círculo',
-                      style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
-                    ),
+                    const Text('Tipo de círculo', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
                     _buildEditableFieldModal('Tipo', () => _mostrarModalEdicion(editarNombre: false), _tipoController.text),
                   ],
                 ),
               ),
-
-              // Miembros
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: greenColor,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Column(
+              _buildGreenContainer(
+                greenColor,
+                Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text('Miembros:', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
@@ -320,6 +301,19 @@ class _CirculoDetalleScreenState extends State<CirculoDetalleScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildGreenContainer(Color color, Widget child) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 20),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: child,
     );
   }
 

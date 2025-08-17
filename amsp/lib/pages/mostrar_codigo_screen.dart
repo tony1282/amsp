@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class MostrarCodigoScreen extends StatefulWidget {
-  final String codigo; // ID del documento Firestore
+  final String codigo;
   final String tipo;
   final String nombre;
 
@@ -20,7 +20,6 @@ class MostrarCodigoScreen extends StatefulWidget {
 class _MostrarCodigoScreenState extends State<MostrarCodigoScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Capitaliza cada palabra
   String _capitalizarCadaPalabra(String texto) {
     return texto.trim().split(RegExp(r'\s+')).map((palabra) {
       if (palabra.isEmpty) return '';

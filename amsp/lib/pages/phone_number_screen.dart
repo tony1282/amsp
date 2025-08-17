@@ -19,7 +19,6 @@ class _PhoneNumberScreenState extends State<PhoneNumberScreen> {
     final user = _auth.currentUser;
     final phone = _controller.text.trim();
 
-    // Validación: número debe tener exactamente 10 dígitos
     final phoneRegex = RegExp(r'^\d{10}$');
 
     if (user != null && phoneRegex.hasMatch(phone)) {

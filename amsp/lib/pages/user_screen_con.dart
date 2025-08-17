@@ -1,10 +1,8 @@
-// Importaciones necesarias para Firebase, Firestore y widgets de Flutter
 import 'package:amsp/pages/inicio_sesion_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-// Widget principal que muestra los datos del usuario
 class UserScreenCon extends StatefulWidget {
   const UserScreenCon({super.key});
 
@@ -13,23 +11,21 @@ class UserScreenCon extends StatefulWidget {
 }
 
 class _UserScreenConState extends State<UserScreenCon> {
-  final _auth = FirebaseAuth.instance; // Instancia de autenticación de Firebase
-  final _firestore = FirebaseFirestore.instance; // Instancia de Firestore
+  final _auth = FirebaseAuth.instance;
+  final _firestore = FirebaseFirestore.instance;
 
-  // Variables para almacenar datos del usuario
+  
   String? _correo;
   String? _nombre;
   String? _telefono;
   String? _fotoURL;
-  bool _cargando = true; // Estado para indicar si los datos están cargando
-
+  bool _cargando = true;
   @override
   void initState() {
     super.initState();
-    _obtenerDatos(); // Carga los datos al iniciar el widget
+    _obtenerDatos();
   }
 
-  // Función para obtener los datos del usuario desde Firebase
   Future<void> _obtenerDatos() async {
     final user = _auth.currentUser;
 
@@ -47,7 +43,6 @@ class _UserScreenConState extends State<UserScreenCon> {
     }
   }
 
-  // Función para cerrar sesión y volver a la pantalla de inicio
   Future<void> _cerrarSesion() async {
     await _auth.signOut();
     if (!mounted) return;
@@ -56,7 +51,6 @@ class _UserScreenConState extends State<UserScreenCon> {
     );
   }
 
-  // Función para editar nombre o teléfono del usuario
   Future<void> _editarCampo({required String campo}) async {
     String valorActual = campo == 'name' ? (_nombre ?? '') : (_telefono ?? '');
     final controller = TextEditingController(text: valorActual);
@@ -65,10 +59,10 @@ class _UserScreenConState extends State<UserScreenCon> {
       context: context,
       builder: (context) {
         final theme = Theme.of(context);
-        final primaryColor = theme.primaryColor; // para el verde
+        final primaryColor = theme.primaryColor; 
 
         return AlertDialog(
-          backgroundColor: primaryColor, // fondo verde
+          backgroundColor: primaryColor, 
           title: Text(
             'Editar ${campo == 'name' ? 'Nombre' : 'Teléfono'}',
             style: const TextStyle(color: Colors.white),
@@ -77,7 +71,7 @@ class _UserScreenConState extends State<UserScreenCon> {
             controller: controller,
             keyboardType:
                 campo == 'phone' ? TextInputType.phone : TextInputType.text,
-            style: const TextStyle(color: Colors.white), // texto blanco
+            style: const TextStyle(color: Colors.white), 
             decoration: InputDecoration(
               labelText: campo == 'name' ? 'Nombre' : 'Teléfono',
               labelStyle: const TextStyle(color: Colors.white70),
@@ -100,8 +94,8 @@ class _UserScreenConState extends State<UserScreenCon> {
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white, // botón blanco
-                foregroundColor: primaryColor, // texto verde
+                backgroundColor: Colors.white, 
+                foregroundColor: primaryColor, 
               ),
               onPressed: () {
                 if (controller.text.trim().isEmpty) return;
@@ -136,8 +130,6 @@ class _UserScreenConState extends State<UserScreenCon> {
     }
   }
 
-  // Widget personalizado para mostrar la información editable del usuario,
-  // con icono de editar al final dentro del container para campos editables
   Widget buildInfoBox(String label, String value, ThemeData theme,
       {VoidCallback? onEdit}) {
     return Column(
@@ -152,7 +144,6 @@ class _UserScreenConState extends State<UserScreenCon> {
         ),
         const SizedBox(height: 5),
         if (onEdit != null)
-          // Para campos editables: caja blanca con texto y icono editar
           GestureDetector(
             onTap: onEdit,
             child: Container(
@@ -183,7 +174,6 @@ class _UserScreenConState extends State<UserScreenCon> {
             ),
           )
         else
-          // Para campo no editable (como correo): texto multilinea en container blanco
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

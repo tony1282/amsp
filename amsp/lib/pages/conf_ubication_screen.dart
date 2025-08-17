@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 
-class CompartirUbicacionScreen extends StatelessWidget {
+class CompartirUbicacionScreen extends StatefulWidget {
   const CompartirUbicacionScreen({super.key});
 
+  @override
+  State<CompartirUbicacionScreen> createState() => _CompartirUbicacionScreenState();
+}
+
+class _CompartirUbicacionScreenState extends State<CompartirUbicacionScreen> {
   static const Color backgroundColor = Color(0xFF248448);
   static const Color orangeColor = Color(0xFFF47405);
 
+  bool _ubicacionActiva = true;
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -25,9 +31,7 @@ class CompartirUbicacionScreen extends StatelessWidget {
               title: 'Compartir ubicación',
               description: 'La ubicación debe estar activa para que los miembros de tu círculo puedan verte en el mapa.',
             ),
-            buildOrangeContainer(
-              title: 'Ubicación activa',
-            ),
+            buildUbicacionContainer(),
           ],
         ),
       ),
@@ -66,6 +70,44 @@ class CompartirUbicacionScreen extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget buildUbicacionContainer() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 15),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: orangeColor,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            'Ubicación activa',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          Switch(
+            value: _ubicacionActiva,
+            activeColor: Colors.white,
+            activeTrackColor: Colors.greenAccent,
+            inactiveThumbColor: Colors.white70,
+            inactiveTrackColor: Colors.grey,
+            onChanged: (value) {
+              setState(() {
+                _ubicacionActiva = value;
+                print('Ubicación activa: $_ubicacionActiva');
+              });
+            },
+          ),
         ],
       ),
     );

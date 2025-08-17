@@ -1,4 +1,3 @@
-// Importación de paquetes necesarios
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -16,10 +15,29 @@ class NotificationScreen extends StatelessWidget {
         .where('destinatarios', arrayContains: uid)
         .orderBy('timestamp', descending: true)
         .snapshots()
-        .map((snapshot) {
-          print('Alertas recibidas: ${snapshot.docs.length}');
-          return snapshot.docs;
-        });
+        .map((snapshot) => snapshot.docs);
+  }
+
+  Future<void> _darDeBajaAlerta(String alertaId, String uid) async {
+    await FirebaseFirestore.instance
+        .collection('alertasCirculos')
+        .doc(alertaId)
+        .update({
+      'vistas': FieldValue.arrayUnion([uid]),
+    });
+  }
+
+  Future<void> _darDeBajaTodas(String uid) async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('alertasCirculos')
+        .where('destinatarios', arrayContains: uid)
+        .get();
+
+    for (final doc in snapshot.docs) {
+      await doc.reference.update({
+        'vistas': FieldValue.arrayUnion([uid]),
+      });
+    }
   }
 
   @override
@@ -43,13 +61,21 @@ class NotificationScreen extends StatelessWidget {
                 letterSpacing: 1.5,
               ),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_forever, color: Colors.white),
+            onPressed: () async {
+              await _darDeBajaTodas(uidActual);
+            },
+          )
+        ],
       ),
       backgroundColor: Colors.white,
       body: StreamBuilder<List<QueryDocumentSnapshot>>(
         stream: _alertasStream(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return Center(
+            return const Center(
               child: Text('Error al cargar alertas. Intenta más tarde.'),
             );
           }
@@ -69,13 +95,14 @@ class NotificationScreen extends StatelessWidget {
           final alertasFiltradas = docs.where((doc) {
             final data = doc.data() as Map<String, dynamic>;
             final emisorId = data['emisorId']?.toString() ?? '';
-            return emisorId != uidActual;
+            final vistas = List<String>.from(data['vistas'] ?? []);
+            return emisorId != uidActual && !vistas.contains(uidActual);
           }).toList();
 
           if (alertasFiltradas.isEmpty) {
             return Center(
               child: Text(
-                'No hay alertas de otros usuarios.',
+                'No hay alertas nuevas.',
                 style: TextStyle(color: Colors.grey[600], fontSize: 16),
               ),
             );
@@ -83,14 +110,14 @@ class NotificationScreen extends StatelessWidget {
 
           return RefreshIndicator(
             onRefresh: () async {
-              // Al refrescar simplemente espera un segundo, pues el Stream ya escucha en tiempo real
               await Future.delayed(const Duration(seconds: 1));
             },
             child: ListView.builder(
               padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 15),
               itemCount: alertasFiltradas.length,
               itemBuilder: (context, index) {
-                final data = alertasFiltradas[index].data() as Map<String, dynamic>;
+                final alerta = alertasFiltradas[index];
+                final data = alerta.data() as Map<String, dynamic>;
                 final mensaje = data['mensaje'] ?? 'Alerta';
                 final timestamp = data['timestamp']?.toDate();
                 final ubicacion = data['ubicacion'];
@@ -116,33 +143,54 @@ class NotificationScreen extends StatelessWidget {
                   } else if (diferencia.inHours < 24) {
                     tiempoFormateado = 'Hace ${diferencia.inHours} h';
                   } else {
-                    tiempoFormateado = DateFormat('dd/MM/yyyy').format(timestamp);
+                    tiempoFormateado =
+                        DateFormat('dd/MM/yyyy').format(timestamp);
                   }
                 }
 
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(15),
-                  decoration: BoxDecoration(
-                    color: primaryColor,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.15),
-                        blurRadius: 4,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: ListTile(
-                    leading: const Icon(Icons.warning, color: Color.fromARGB(255, 208, 8, 8)),
-                    title: Text(
-                      mensaje,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                return Dismissible(
+                  key: Key(alerta.id),
+                  direction: DismissDirection.endToStart,
+                  onDismissed: (_) async {
+                    await _darDeBajaAlerta(alerta.id, uidActual);
+                  },
+                  background: Container(
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.only(right: 20),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    subtitle: Text(
-                      '$tiempoFormateado$ubicacionTexto',
-                      style: const TextStyle(color: Colors.white70),
+                    child: const Icon(Icons.delete, color: Colors.white),
+                  ),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(15),
+                    decoration: BoxDecoration(
+                      color: primaryColor,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.15),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: ListTile(
+                      leading: const Icon(Icons.warning,
+                          color: Color.fromARGB(255, 208, 8, 8)),
+                      title: Text(
+                        mensaje,
+                        style: const TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(
+                        '$tiempoFormateado$ubicacionTexto',
+                        style: const TextStyle(color: Colors.white70),
+                      ),
                     ),
                   ),
                 );
