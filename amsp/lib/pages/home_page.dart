@@ -85,6 +85,9 @@ class _HomePageState extends State<HomePage> {
   bool _yaCargoInicial = false;
   bool _seguirUsuarioTemporal = true;
   bool _seguirUsuario = true;
+  bool _alertaActiva = false;
+
+
 
 
   StreamSubscription? _alertasSubscription;
@@ -125,7 +128,7 @@ void initState() {
   _escucharAlertasEnTiempoReal();
 
   _ultimoTimestampPorCirculo = {};
-    Future.delayed(const Duration(seconds: 10), () {
+    Future.delayed(const Duration(seconds: 4), () {
     _escucharAlertasTodosCirculos();
   });
 
@@ -392,10 +395,11 @@ Future<void> _escucharUbicacionesDelCirculo(String circleId) async {
 
       _moverMarcadorFluido(uid, puntoNuevo, name);
 
-      if (!_zoomAjustadoParaCirculo && mapboxMapController != null) {
-        todasPosiciones[uid] = puntoNuevo;
-        await _ajustarZoomParaTodos(todasPosiciones, forzar: true);
-      }
+      if (!_zoomAjustadoParaCirculo && !_alertaActiva && mapboxMapController != null) {
+      todasPosiciones[uid] = puntoNuevo;
+      await _ajustarZoomParaTodos(todasPosiciones, forzar: true);
+}
+
     });
 
     miembrosListeners[uid] = sub;
@@ -501,21 +505,16 @@ void _procesarAlertas() async {
   _player.setReleaseMode(ReleaseMode.loop);
   await _player.play(AssetSource('sounds/alert.mp3'));
 
-  if (mapboxMapController != null) {
-    await mapboxMapController!.flyTo(
-      mp.CameraOptions(
-        center: mp.Point(
-          coordinates: mp.Position(
-            alerta['ubicacion']['lng'],
-            alerta['ubicacion']['lat'],
-          ),
-        ),
-        zoom: 16.0,
-      ),
-      mp.MapAnimationOptions(duration: 1000),
-    );
+  final mensaje = alerta['mensaje'] ?? "Alerta sin mensaje";
+  final circleId = alerta['circleId'] as String?;
+  final emisorId = alerta['emisorId'] as String?;
+
+  // Abrir el círculo y enfocar al emisor
+  if (circleId != null && emisorId != null) {
+  await _abrirCirculoPorAlerta(circleId, emisorId);
   }
 
+  // Mostrar diálogo SOS
   await showDialog(
     context: context,
     barrierDismissible: false,
@@ -539,7 +538,7 @@ void _procesarAlertas() async {
         ],
       ),
       content: Text(
-        alerta['mensaje'],
+        mensaje,
         style: const TextStyle(color: Colors.white, fontSize: 16),
       ),
       actions: [
@@ -565,6 +564,80 @@ void _procesarAlertas() async {
     _procesarAlertas();
   });
 }
+
+Future<void> _abrirCirculoPorAlerta(String circleId, String emisorId) async {
+  await _limpiarEscuchasYMarcadores(); 
+  circuloSeleccionadoId = circleId;
+  _zoomAjustadoParaCirculo = false;
+
+  final circleDoc = await FirebaseFirestore.instance
+      .collection('circulos')
+      .doc(circleId)
+      .get();
+
+  if (!circleDoc.exists) return;
+
+  final miembros = circleDoc.data()?['miembros'] as List<dynamic>? ?? [];
+  double? latEmisor;
+  double? lngEmisor;
+
+final currentUser = FirebaseAuth.instance.currentUser;
+
+for (final member in miembros) {
+  String uid;
+  String name = 'Sin nombre';
+
+  if (member is String) {
+    uid = member;
+  } else if (member is Map<String, dynamic>) {
+    uid = member['uid'];
+    name = member['name'] ?? 'Sin nombre';
+  } else {
+    continue;
+  }
+
+  // Ignorar al usuario actual
+  if (uid == currentUser?.uid) continue;
+
+  final snapshot = await FirebaseFirestore.instance
+      .collection('ubicaciones')
+      .doc(uid)
+      .get();
+
+  final data = snapshot.data();
+  final lat = (data?['lat'] ?? data?['latitude'])?.toDouble();
+  final lng = (data?['lng'] ?? data?['longitude'])?.toDouble();
+  if (lat == null || lng == null) continue;
+
+  final punto = mp.Point(coordinates: mp.Position(lng, lat));
+  _moverMarcadorFluido(uid, punto, name);
+
+  if (uid == emisorId) {
+    latEmisor = lat;
+    lngEmisor = lng;
+  }
+}
+_alertaActiva = true;
+
+
+
+  // centrar cámara en emisor
+if (latEmisor != null && lngEmisor != null && mapboxMapController != null) {
+  await mapboxMapController!.flyTo(
+    mp.CameraOptions(
+      center: mp.Point(coordinates: mp.Position(lngEmisor, latEmisor)),
+      zoom: 20, // Zoom cercano al emisor
+    ),
+    mp.MapAnimationOptions(duration: 1000),
+  );
+}
+
+
+  // escuchar cambios en tiempo real
+  _escucharUbicacionesDelCirculo(circleId);
+}
+
+
 
 
 
@@ -1320,21 +1393,28 @@ void _escucharAlertasEnTiempoReal() {
   if (uid == null) return;
 
   _alertasSubscription = FirebaseFirestore.instance
-      .collectionGroup('alertas')
+      .collectionGroup('alertasCirculos')
       .orderBy('timestamp', descending: true)
       .snapshots()
       .listen((snapshot) {
     if (snapshot.docs.isEmpty) return;
 
     final alerta = snapshot.docs.first;
-    final emisorId = alerta['emisorid'];
-    final timestamp = alerta['timestamp'] as Timestamp;
+    final data = alerta.data() as Map<String, dynamic>;
+    final emisorId = data['emisorId'];
+    final timestamp = data['timestamp'] as Timestamp;
+    final vistas = List<String>.from(data['vistas'] ?? []);
 
     if ((_ultimoTimestampVisto == null || timestamp.compareTo(_ultimoTimestampVisto!) > 0) &&
-        emisorId != uid) {
+        emisorId != uid &&
+        !vistas.contains(uid)) {
       setState(() {
         _mostrarNotificacion = true;
         _ultimoTimestampVisto = timestamp;
+      });
+    } else {
+      setState(() {
+        _mostrarNotificacion = false; // oculta la bolita si ya viste la alerta
       });
     }
   });
@@ -1959,7 +2039,8 @@ Widget build(BuildContext context) {
               setState(() {
                 _seguirUsuario = !_seguirUsuario;
               });
-            }, contrastColor),
+            },    _seguirUsuario ? const Color(0xFFFF6C00) : Colors.white, 
+              ),
             _bottomIcon(Icons.family_restroom, () {
               Navigator.push(
                 context,
