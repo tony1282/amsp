@@ -429,48 +429,59 @@ Future<void> _escucharAlertasTodosCirculos() async {
   }
 
   final query = FirebaseFirestore.instance
-    .collection('alertasCirculos')
-    .where('destinatarios', arrayContains: currentUser.uid)
-    .where('circleId', whereIn: circleIds)
-    .orderBy('timestamp', descending: true);
+      .collection('alertasCirculos')
+      .where('destinatarios', arrayContains: currentUser.uid)
+      .orderBy('timestamp', descending: true);
 
   print('   creando listener global (saltando primer snapshot)');
-  final sub = query
-    .snapshots()
-    .skip(1)          
-    .listen((snapshot) {
-      print('snapshot recibe ${snapshot.docChanges.length} cambios');
+  final sub = query.snapshots().skip(1).listen((snapshot) {
+    print('snapshot recibe ${snapshot.docChanges.length} cambios');
 
-      for (var change in snapshot.docChanges) {
-        print('change.type=${change.type} docId=${change.doc.id}');
-        if (change.type != DocumentChangeType.added) continue;
+    for (var change in snapshot.docChanges) {
+      print('change.type=${change.type} docId=${change.doc.id}');
+      if (change.type != DocumentChangeType.added) continue;
 
-        final data = change.doc.data() as Map<String, dynamic>?;
-        if (data == null) continue;
+      final data = change.doc.data() as Map<String, dynamic>?;
+      if (data == null) continue;
 
-        final circleId = data['circleId'] as String?;
-        final emisor   = data['emisorId'] as String?;
-        if (circleId == null || emisor == currentUser.uid) continue;
+      final emisor = data['emisorId'] as String?;
+      if (emisor == currentUser.uid) continue;
 
-        final ts = data['timestamp'] as Timestamp?;
-        if (ts == null) continue;
+      final ts = data['timestamp'] as Timestamp?;
+      if (ts == null) continue;
 
-        final lastTs = _ultimoTimestampPorCirculo[circleId];
-        if (lastTs != null &&
-            ts.millisecondsSinceEpoch <= lastTs.millisecondsSinceEpoch) {
-          continue;
+      // Tomamos el primer circleId al que pertenece el usuario
+      final List<dynamic>? alertaCircleIds = data['circleIds'] as List<dynamic>?;
+      if (alertaCircleIds == null || alertaCircleIds.isEmpty) continue;
+
+      String? circleIdParaMostrar;
+      for (var cid in alertaCircleIds) {
+        if (circleIds.contains(cid)) {
+          circleIdParaMostrar = cid as String;
+          break;
         }
-
-        _ultimoTimestampPorCirculo[circleId] = ts;
-        _agregarAlerta(data);
       }
-    }, onError: (e) {
-      print('Error listener global: $e');
-    });
+      if (circleIdParaMostrar == null) continue;
+
+      final lastTs = _ultimoTimestampPorCirculo[circleIdParaMostrar];
+      if (lastTs != null && ts.millisecondsSinceEpoch <= lastTs.millisecondsSinceEpoch) {
+        continue;
+      }
+
+      _ultimoTimestampPorCirculo[circleIdParaMostrar] = ts;
+
+      // Le agregamos el circleId que vamos a usar para centrar la cámara
+      final alertaConCircleId = Map<String, dynamic>.from(data);
+      alertaConCircleId['circleId'] = circleIdParaMostrar;
+
+      _agregarAlerta(alertaConCircleId);
+    }
+  }, onError: (e) {
+    print('Error listener global: $e');
+  });
 
   _alertSubs['global'] = sub;
 }
-
 
 
 
@@ -509,9 +520,19 @@ void _procesarAlertas() async {
   final circleId = alerta['circleId'] as String?;
   final emisorId = alerta['emisorId'] as String?;
 
-  // Abrir el círculo y enfocar al emisor
   if (circleId != null && emisorId != null) {
-  await _abrirCirculoPorAlerta(circleId, emisorId);
+    await _abrirCirculoPorAlerta(circleId, emisorId);
+  }
+
+  String telefonoEmisor = '';
+  if (emisorId != null) {
+    try {
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(emisorId).get();
+      final dataUser = userDoc.data();
+      if (dataUser != null) {
+        telefonoEmisor = (dataUser['phone'] ?? '') as String;
+      }
+    } catch (_) {}
   }
 
   // Mostrar diálogo SOS
@@ -542,6 +563,24 @@ void _procesarAlertas() async {
         style: const TextStyle(color: Colors.white, fontSize: 16),
       ),
       actions: [
+        if (telefonoEmisor.isNotEmpty)
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _llamarNumero(context, telefonoEmisor); 
+            },
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.white,
+              backgroundColor: Colors.green,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            child: const Text(
+              "Llamar",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
         TextButton(
           onPressed: () => Navigator.pop(context),
           style: TextButton.styleFrom(
@@ -564,6 +603,8 @@ void _procesarAlertas() async {
     _procesarAlertas();
   });
 }
+
+
 
 Future<void> _abrirCirculoPorAlerta(String circleId, String emisorId) async {
   await _limpiarEscuchasYMarcadores(); 
@@ -710,7 +751,7 @@ Future<void> _actualizarMarcadorMiembro(
         geometry: punto,
         image: imageData,
         iconSize: 0.24,
-        iconOffset: [0, -1],
+        iconOffset: [0, -2],
       ),
     );
     miembrosAnnotations[uid] = annotation!;
@@ -720,7 +761,7 @@ Future<void> _actualizarMarcadorMiembro(
         geometry: punto,
         textField: name,
         textSize: 18.0,
-        textOffset: [0, 1.5],
+        textOffset: [0, 2.1],
         textColor: const Color.fromARGB(255, 0, 0, 0).value,
         textHaloColor: Colors.white.value,
         textHaloWidth: 3,
@@ -1156,69 +1197,84 @@ Future<void> _llamarNumero(BuildContext context, String numero) async {
 
 
 // Alertas SOS
+bool _enviandoAlerta = false;
+
 Future<void> _enviarAlerta() async {
-  final user = FirebaseAuth.instance.currentUser;
-  if (user == null) return;
+  if (_enviandoAlerta) return; // evita pulsaciones dobles
+  _enviandoAlerta = true;
 
-  final uid = user.uid;
-  final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-
-  final nombre = userDoc.data()?['name'] ?? 'Usuario';
-  final phone = userDoc.data()?['phone'] ?? 'N/A';
-
-  gl.Position? posicion;
   try {
-    bool servicioActivo = await gl.Geolocator.isLocationServiceEnabled();
-    if (!servicioActivo) {
-      print("GPS no está activo");
-    } else {
-      gl.LocationPermission permiso = await gl.Geolocator.checkPermission();
-      if (permiso == gl.LocationPermission.denied || permiso == gl.LocationPermission.deniedForever) {
-        permiso = await gl.Geolocator.requestPermission();
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final uid = user.uid;
+    final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    final nombre = userDoc.data()?['name'] ?? 'Usuario';
+    final phone = userDoc.data()?['phone'] ?? 'N/A';
+
+    gl.Position? posicion;
+    try {
+      bool servicioActivo = await gl.Geolocator.isLocationServiceEnabled();
+      if (!servicioActivo) {
+        print("GPS no está activo");
+      } else {
+        gl.LocationPermission permiso = await gl.Geolocator.checkPermission();
+        if (permiso == gl.LocationPermission.denied || permiso == gl.LocationPermission.deniedForever) {
+          permiso = await gl.Geolocator.requestPermission();
+        }
+        if (permiso != gl.LocationPermission.denied && permiso != gl.LocationPermission.deniedForever) {
+          posicion = await gl.Geolocator.getCurrentPosition(desiredAccuracy: gl.LocationAccuracy.high);
+        }
       }
-      if (permiso != gl.LocationPermission.denied && permiso != gl.LocationPermission.deniedForever) {
-        posicion = await gl.Geolocator.getCurrentPosition(desiredAccuracy: gl.LocationAccuracy.high);
-      }
+    } catch (e) {
+      print("Error al obtener ubicación: $e");
     }
-  } catch (e) {
-    print("Error al obtener ubicación: $e");
-  }
 
-  final circulos = await FirebaseFirestore.instance
-      .collection('circulos')
-      .where('miembrosUids', arrayContains: uid)
-      .get();
+    // Obtener todos los círculos del usuario
+    final circulos = await FirebaseFirestore.instance
+        .collection('circulos')
+        .where('miembrosUids', arrayContains: uid)
+        .get();
 
-  WriteBatch batch = FirebaseFirestore.instance.batch();
+    if (circulos.docs.isEmpty) return;
 
-  for (var doc in circulos.docs) {
-    final circleId = doc.id;
+    Set<String> destinatariosGlobal = {};
+    List<String> circleIds = [];
 
-    final miembrosUids = List<String>.from(doc.data()['miembrosUids'] ?? []);
+    for (var doc in circulos.docs) {
+      final miembrosUids = List<String>.from(doc.data()['miembrosUids'] ?? []);
+      destinatariosGlobal.addAll(miembrosUids);
+      circleIds.add(doc.id);
+    }
 
+    // Crear UNA sola alerta para todos los círculos
+    final alertaRef = FirebaseFirestore.instance.collection('alertasCirculos').doc();
     Map<String, dynamic> alertaData = {
-      'circleId': circleId,
+      'docId': alertaRef.id,
+      'circleIds': circleIds,            // <-- todos los IDs de los círculos
       'mensaje': '¡$nombre ha enviado una alerta SOS!',
       'emisorId': uid,
       'name': nombre,
       'phone': phone,
       'timestamp': FieldValue.serverTimestamp(),
-      'destinatarios': miembrosUids,
+      'destinatarios': destinatariosGlobal.toList(),
       'activa': true,
+      if (posicion != null)
+        'ubicacion': {
+          'lat': posicion.latitude,
+          'lng': posicion.longitude,
+        },
     };
 
-    if (posicion != null) {
-      alertaData['ubicacion'] = {
-        'lat': posicion.latitude,
-        'lng': posicion.longitude,
-      };
-    }
+    await alertaRef.set(alertaData);
 
-    final alertaRef = FirebaseFirestore.instance.collection('alertasCirculos').doc();
-    batch.set(alertaRef, alertaData);
+    print("Alerta global enviada correctamente.");
+
+  } catch (e) {
+    print("Error al enviar alerta: $e");
+  } finally {
+    _enviandoAlerta = false;
   }
-
-  await batch.commit();
 }
 
 // alertas Smart e Iot
