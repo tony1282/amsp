@@ -67,15 +67,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
     }
   }
 
-  Future<void> _guardarCirculo(String nombre, String tipo) async {
-    final nombreFormateado = _capitalizarCadaPalabra(nombre);
-    await _firestore.collection('circulos').add({
-      'nombre': nombreFormateado,
-      'tipo': tipo,
-      'creador': uid,
-      'miembros': [],
-    });
-  }
+
 
   Stream<List<QueryDocumentSnapshot>> _streamCirculosCreados() {
     return _firestore

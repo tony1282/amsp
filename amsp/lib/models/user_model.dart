@@ -9,7 +9,6 @@ class UserModel {
   final String nombreUsuario; // Nombre del usuario
   final String numeroTelefono; // Teléfono del usuario
   final String email; // Correo electrónico del usuario
-  final TipoUsuario tipoUsuario; // Tipo de usuario (admin o familiar)
 
   // Constructor con parámetros requeridos
   UserModel({
@@ -17,7 +16,6 @@ class UserModel {
     required this.nombreUsuario,
     required this.numeroTelefono,
     required this.email,
-    required this.tipoUsuario,
   });
 
   // Convierte el modelo a un mapa para guardar en Firestore
@@ -26,7 +24,6 @@ class UserModel {
       'name': nombreUsuario,
       'phone': numeroTelefono,
       'email': email,
-      'rol': tipoUsuario.name, // Usamos el nombre del enum como string
     };
   }
 
@@ -41,7 +38,7 @@ class UserModel {
         nombreUsuario: 'desconocido',
         numeroTelefono: 'desconocido',
         email: 'sin correo',
-        tipoUsuario: TipoUsuario.familiar,
+        //tipoUsuario: TipoUsuario.familiar,
       );
     }
 
@@ -51,16 +48,8 @@ class UserModel {
       nombreUsuario: data['name'] ?? 'desconocido',
       numeroTelefono: data['phone'] ?? 'desconocido',
       email: data['email'] ?? 'sin correo',
-      tipoUsuario: _rolFromString(data['rol'] ?? 'familiar'),
     );
   }
 
-  // Método auxiliar para convertir string a enum TipoUsuario
-  static TipoUsuario _rolFromString(String rol) {
-    final rolLower = rol.toLowerCase();
-    return TipoUsuario.values.firstWhere(
-      (e) => e.name.toLowerCase() == rolLower,
-      orElse: () => TipoUsuario.familiar, // Valor por defecto si no encuentra match
-    );
-  }
+
 }

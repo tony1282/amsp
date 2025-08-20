@@ -126,6 +126,7 @@ void initState() {
   cargarDatosUsuario();
   _escucharAlertasSmart();
   _escucharAlertasEnTiempoReal();
+  _escucharAlertasIoT();
 
   _ultimoTimestampPorCirculo = {};
     Future.delayed(const Duration(seconds: 4), () {
@@ -205,7 +206,6 @@ void initState() {
       final userModel = docUser.exists ? UserModel.fromDocumentSnapshot(docUser) : null;
 
       setState(() {
-        esCreadorFamilia = userModel?.tipoUsuario == TipoUsuario.admin;
         cargandoUsuario = false;
       });
 
@@ -930,8 +930,8 @@ Future<void> _modalTelefono(BuildContext context) async {
                     return _contactTile(
                       context,
                       contacto.id,
-                      contacto['nombre'],
-                      contacto['numero'],
+                      contacto['nombreContacto'],
+                      contacto['numeroContacto'],
                     );
                   },
                 );
@@ -965,10 +965,8 @@ void _mostrarFormularioAgregar(BuildContext context) {
   final _nombreController = TextEditingController();
   final _numeroController = TextEditingController();
   final userId = FirebaseAuth.instance.currentUser?.uid;
-  
 
   showDialog(
-    
     context: context,
     builder: (_) => AlertDialog(
       backgroundColor: greenColor,
@@ -978,6 +976,7 @@ void _mostrarFormularioAgregar(BuildContext context) {
         children: [
           TextField(
             controller: _nombreController,
+            textCapitalization: TextCapitalization.words, // 👈 capitalizar
             decoration: const InputDecoration(
               labelText: "Nombre",
               labelStyle: TextStyle(color: Colors.white70),
@@ -992,6 +991,11 @@ void _mostrarFormularioAgregar(BuildContext context) {
           ),
           TextField(
             controller: _numeroController,
+            keyboardType: TextInputType.number, // 👈 solo números
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly, // solo dígitos
+              LengthLimitingTextInputFormatter(10), // máximo 10 números
+            ],
             decoration: const InputDecoration(
               labelText: "Número",
               labelStyle: TextStyle(color: Colors.white70),
@@ -1013,21 +1017,21 @@ void _mostrarFormularioAgregar(BuildContext context) {
         ),
         ElevatedButton(
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.white, 
-            foregroundColor: greenColor, 
+            backgroundColor: Colors.white,
+            foregroundColor: greenColor,
           ),
           onPressed: () async {
             final nombre = _nombreController.text.trim();
             final numero = _numeroController.text.trim();
-            if (nombre.isEmpty || numero.isEmpty) return;
+            if (nombre.isEmpty || numero.isEmpty || numero.length != 10) return;
 
             await FirebaseFirestore.instance
                 .collection('contactos')
                 .doc(userId)
                 .collection('contactos_emergencia')
                 .add({
-              'nombre': nombre,
-              'numero': numero,
+              'nombreContacto': nombre,
+              'numeroContacto': numero,
               'fechaAgregado': FieldValue.serverTimestamp(),
             });
 
@@ -1039,7 +1043,6 @@ void _mostrarFormularioAgregar(BuildContext context) {
     ),
   );
 }
-
 
 void _editarContacto(BuildContext context, String id, String nombreActual, String numeroActual) {
   final theme = Theme.of(context);
@@ -1103,8 +1106,8 @@ showDialog(
                 .collection('contactos_emergencia')
                 .doc(id)
                 .update({
-              'nombre': _nombreController.text.trim(),
-              'numero': _numeroController.text.trim(),
+              'nombreContacto': _nombreController.text.trim(),
+              'numeroContacto': _numeroController.text.trim(),
             });
             Navigator.pop(context);
           },
@@ -1241,7 +1244,6 @@ void _escucharAlertasSmart() {
   });
 }
 
-
 Future<void> irALaUltimaAlerta() async {
   try {
     final snapshot = await _ref.child('mensaje').get(); 
@@ -1265,9 +1267,36 @@ Future<void> irALaUltimaAlerta() async {
 
 
 
+void _escucharAlertasIoT() {
+  _ref.child('mensaje').onValue.listen((event) {
+    final data = event.snapshot.value as Map<dynamic, dynamic>?;
 
+    if (data != null) {
+      final double? lat = (data['latitud'] as num?)?.toDouble();
+      final double? lng = (data['longitud'] as num?)?.toDouble();
+      final String timestamp = data['timestamp']?.toString() ?? "Sin fecha";
+
+      if (lat != null && lng != null) {
+        _mostrarAlertaEnMapa("Alerta IoT\n¡Estoy en peligro!", lat, lng);
+      } else {
+        print("No hay coordenadas disponibles en la alerta IoT");
+      }
+    }
+  });
+}
+
+
+
+
+
+
+// Función que muestra la alerta en el mapa y abre el diálogo
 void _mostrarAlertaEnMapa(String mensaje, double lat, double lng, {Timestamp? createdAt}) async {
   if (mapboxMapController == null) return;
+
+  setState(() {
+    _seguirUsuario = false; // desactiva seguimiento al mostrar alerta
+  });
 
   if (createdAt != null) {
     final ahora = DateTime.now();
@@ -1283,6 +1312,7 @@ void _mostrarAlertaEnMapa(String mensaje, double lat, double lng, {Timestamp? cr
     }
   }
 
+  // Mueve la cámara al punto de la alerta
   await mapboxMapController!.flyTo(
     mp.CameraOptions(
       center: mp.Point(coordinates: mp.Position(lng, lat)),
@@ -1291,6 +1321,7 @@ void _mostrarAlertaEnMapa(String mensaje, double lat, double lng, {Timestamp? cr
     mp.MapAnimationOptions(duration: 1000),
   );
 
+  // Añade el marcador de alerta si no existe
   if (pointAnnotationManager != null) {
     final idAlerta = "$lat-$lng";
     if (!alertasAnnotations.containsKey(idAlerta)) {
@@ -1315,11 +1346,9 @@ void _mostrarAlertaEnMapa(String mensaje, double lat, double lng, {Timestamp? cr
     }
   }
 
+  // Muestra el diálogo de alerta si no está abierto
   if (!_dialogoAbierto) {
     _dialogoAbierto = true;
-
-    //
-    _seguirUsuario = false;
 
     _player.setReleaseMode(ReleaseMode.loop);
     await _player.play(AssetSource('sounds/alert.mp3'));
@@ -1388,6 +1417,10 @@ void _mostrarAlertaEnMapa(String mensaje, double lat, double lng, {Timestamp? cr
 }
 
 
+
+
+
+
 void _escucharAlertasEnTiempoReal() {
   final uid = FirebaseAuth.instance.currentUser?.uid;
   if (uid == null) return;
@@ -1420,6 +1453,7 @@ void _escucharAlertasEnTiempoReal() {
   });
 }
 //
+
 
 
 // Marcadores de ubicación
@@ -1846,7 +1880,13 @@ Widget build(BuildContext context) {
         );
       }, contrastColor),
       actions: [
-     
+      //_iconButton(Icons.wifi_protected_setup, () {
+     //irALaUltimaAlerta(); // llama a la función que ya escucha la alerta IoT
+    //}, contrastColor),
+    //_iconButton(Icons.access_alarm, () {
+      //_escucharAlertasSmart(); // llama a la función que ya escucha la alerta IoT
+    //}, contrastColor),
+
         Stack(
           children: [
             _iconButton(
