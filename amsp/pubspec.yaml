@@ -22,7 +22,7 @@ dependencies:
   firebase_database: ^10.5.7
   intl: ^0.20.2
   audioplayers: ^6.5.0
-
+  flutter_launcher_icons: ^0.14.4
 
 dev_dependencies:
   flutter_test:
@@ -37,6 +37,10 @@ flutter:
     - assets/alert.png
     - assets/sounds/alert.mp3
     - .env
-    - assets/geojson/Tlax.geojson
     - assets/geojson/tlaxcala_zonas.geojson
-  
+
+# flutter_icons va FUERA de flutter:
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/images1.jpg"

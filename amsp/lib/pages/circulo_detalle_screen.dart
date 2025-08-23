@@ -124,26 +124,23 @@ class _CirculoDetalleScreenState extends State<CirculoDetalleScreen> {
   }
 
   Future<void> _eliminarCirculo() async {
-    try {
-      final miembrosSnapshot = await _firestore
-          .collection('circulos')
-          .doc(widget.circleId)
-          .collection('miembros')
-          .get();
-      for (var doc in miembrosSnapshot.docs) {
-        await doc.reference.delete();
-      }
-      await _firestore.collection('circulos').doc(widget.circleId).delete();
+  try {
+    final miembrosSnapshot = await _firestore
+        .collection('circulos')
+        .doc(widget.circleId)
+        .collection('miembros')
+        .get();
+    for (var doc in miembrosSnapshot.docs) {
+      await doc.reference.delete();
+    }
+    await _firestore.collection('circulos').doc(widget.circleId).delete();
 
-      if (mounted) {
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const FamilyScreen()),
-          (route) => false,
-        );
-      }
-    } catch (_) {}
-  }
+    if (mounted) {
+      Navigator.pop(context);
+    }
+  } catch (_) {}
+}
+
 
   @override
   Widget build(BuildContext context) {

@@ -117,36 +117,17 @@ class _HomePageState extends State<HomePage> {
 final Map<String, bool> _initialCircleFetched = {};
 
 
-
+DateTime? _ultimoTimestampAlertasIoT;
 
 @override
 void initState() {
   super.initState();
+
+  _appStartTime = DateTime.now();
+
   LocationService.startLocationUpdates();
   cargarDatosUsuario();
-  _escucharAlertasSmart();
-  _escucharAlertasEnTiempoReal();
-  _escucharAlertasIoT();
-
   _ultimoTimestampPorCirculo = {};
-    Future.delayed(const Duration(seconds: 4), () {
-    _escucharAlertasTodosCirculos();
-  });
-
-
-  _ref.onValue.listen((event) {
-    final data = event.snapshot.value as Map<dynamic, dynamic>?;
-    if (data != null) {
-      final mensaje = data['mensaje']?.toString() ?? '';
-      final lat = (data['latitud'] as num?)?.toDouble();
-      final lng = (data['longitud'] as num?)?.toDouble();
-      final timestamp = data['timestamp']?.toString() ?? "Sin fecha";
-
-      if (lat != null && lng != null) {
-        _mostrarAlertaEnMapa("Alerta IoT\n$timestamp", lat, lng);
-      }
-    }
-  });
 
   _accelerometerSubscription = accelerometerEvents.listen((event) {
     final double aceleracion = sqrt(
@@ -159,14 +140,51 @@ void initState() {
         _ultimaSacudida = ahora;
 
         if (!_mostrarModalAlerta) {
-          _showSosModal(context); 
+          _mostrarModalAlerta = true;
+          _showSosModal(context);
         }
       }
     }
   });
 
   _setupPositionTracking();
+
+  Future.delayed(const Duration(seconds: 3), () {
+    _escucharAlertasSmart();
+    _escucharAlertasEnTiempoReal();
+    _escucharAlertasIoT();
+    _escucharAlertasTodosCirculos();
+
+    _ref.child('registros').onValue.listen((event) {
+      final data = event.snapshot.value as Map<dynamic, dynamic>?;
+
+      if (data != null) {
+        data.forEach((key, value) {
+          final alerta = value as Map<dynamic, dynamic>;
+          final lat = (alerta['latitud'] as num?)?.toDouble();
+          final lng = (alerta['longitud'] as num?)?.toDouble();
+          final timestampStr = alerta['timestamp']?.toString();
+          final timestamp = timestampStr != null ? DateTime.tryParse(timestampStr) : null;
+          final userName = alerta['nombre']?.toString() ?? 'Usuario';
+          final phone = alerta['numero']?.toString() ?? '';
+
+          if (lat != null && lng != null && timestamp != null) {
+            if (_ultimoTimestampAlertasIoT == null && timestamp.isBefore(_appStartTime)) {
+              return;
+            }
+
+            if (_ultimoTimestampAlertasIoT == null || timestamp.isAfter(_ultimoTimestampAlertasIoT!)) {
+              _mostrarAlertaEnMapaIoT("Alerta IoT\n$timestampStr", lat, lng, userName, phone);
+
+              _ultimoTimestampAlertasIoT = timestamp;
+            }
+          }
+        });
+      }
+    });
+  });
 }
+
 
 
 
@@ -450,7 +468,6 @@ Future<void> _escucharAlertasTodosCirculos() async {
       final ts = data['timestamp'] as Timestamp?;
       if (ts == null) continue;
 
-      // Tomamos el primer circleId al que pertenece el usuario
       final List<dynamic>? alertaCircleIds = data['circleIds'] as List<dynamic>?;
       if (alertaCircleIds == null || alertaCircleIds.isEmpty) continue;
 
@@ -470,7 +487,6 @@ Future<void> _escucharAlertasTodosCirculos() async {
 
       _ultimoTimestampPorCirculo[circleIdParaMostrar] = ts;
 
-      // Le agregamos el circleId que vamos a usar para centrar la cámara
       final alertaConCircleId = Map<String, dynamic>.from(data);
       alertaConCircleId['circleId'] = circleIdParaMostrar;
 
@@ -536,72 +552,97 @@ void _procesarAlertas() async {
   }
 
   // Mostrar diálogo SOS
-  await showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (_) => AlertDialog(
-      backgroundColor: Colors.red,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      title: Row(
-        children: const [
-          Icon(Icons.warning, color: Colors.white),
-          SizedBox(width: 8),
-          Text(
-            "Alerta SOS",
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 20,
-            ),
+await showDialog(
+  context: context,
+  barrierDismissible: false,
+  builder: (_) => AlertDialog(
+    backgroundColor: Colors.red,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(16),
+    ),
+    title: Row(
+      children: const [
+        Icon(Icons.warning, color: Colors.white),
+        SizedBox(width: 8),
+        Text(
+          "Alerta SOS",
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 25,
           ),
-        ],
-      ),
-      content: Text(
-        mensaje,
-        style: const TextStyle(color: Colors.white, fontSize: 16),
-      ),
-      actions: [
-        if (telefonoEmisor.isNotEmpty)
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _llamarNumero(context, telefonoEmisor); 
-            },
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.white,
-              backgroundColor: Colors.green,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            child: const Text(
-              "Llamar",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
+        ),
+      ],
+    ),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          mensaje,
+          style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold,),
+        ),
+        const SizedBox(height: 12),
+        const SizedBox(height: 8),
+        const Text(
+          "Protocolo de emergencia:",
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
           ),
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          "1. Llama de inmediato al usuario en riesgo.\n"
+          "2. Verifica su ubicación en el mapa.\n"
+          "3. Notifica a las autoridades si no responde.\n"
+          "4. Manten comunicación con los demás miembros del círculo.",
+          style: TextStyle(color: Colors.white, fontSize: 14),
+        ),
+      ],
+    ),
+    actions: [
+      if (telefonoEmisor.isNotEmpty)
         TextButton(
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            Navigator.pop(context);
+            _llamarNumero(context, telefonoEmisor);
+          },
           style: TextButton.styleFrom(
-            foregroundColor: Colors.white,
-            backgroundColor: Colors.red,
+            foregroundColor: Colors.red,
+            backgroundColor: Colors.white,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
             ),
           ),
           child: const Text(
-            "Cerrar",
+            "Llamar",
             style: TextStyle(fontWeight: FontWeight.bold),
           ),
         ),
-      ],
-    ),
-  ).whenComplete(() async {
-    _dialogoAbierto = false;
-    await _player.stop();
-    _procesarAlertas();
-  });
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        style: TextButton.styleFrom(
+          foregroundColor: Colors.white,
+          backgroundColor: Colors.red,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+        child: const Text(
+          "Cerrar",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+      ),
+    ],
+  ),
+).whenComplete(() async {
+  _dialogoAbierto = false;
+  await _player.stop();
+  _procesarAlertas();
+});
+
 }
 
 
@@ -637,7 +678,6 @@ for (final member in miembros) {
     continue;
   }
 
-  // Ignorar al usuario actual
   if (uid == currentUser?.uid) continue;
 
   final snapshot = await FirebaseFirestore.instance
@@ -662,19 +702,16 @@ _alertaActiva = true;
 
 
 
-  // centrar cámara en emisor
 if (latEmisor != null && lngEmisor != null && mapboxMapController != null) {
   await mapboxMapController!.flyTo(
     mp.CameraOptions(
       center: mp.Point(coordinates: mp.Position(lngEmisor, latEmisor)),
-      zoom: 20, // Zoom cercano al emisor
+      zoom: 14, 
     ),
     mp.MapAnimationOptions(duration: 1000),
   );
 }
 
-
-  // escuchar cambios en tiempo real
   _escucharUbicacionesDelCirculo(circleId);
 }
 
@@ -1017,7 +1054,7 @@ void _mostrarFormularioAgregar(BuildContext context) {
         children: [
           TextField(
             controller: _nombreController,
-            textCapitalization: TextCapitalization.words, // 👈 capitalizar
+            textCapitalization: TextCapitalization.words, 
             decoration: const InputDecoration(
               labelText: "Nombre",
               labelStyle: TextStyle(color: Colors.white70),
@@ -1032,10 +1069,10 @@ void _mostrarFormularioAgregar(BuildContext context) {
           ),
           TextField(
             controller: _numeroController,
-            keyboardType: TextInputType.number, // 👈 solo números
+            keyboardType: TextInputType.number, 
             inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly, // solo dígitos
-              LengthLimitingTextInputFormatter(10), // máximo 10 números
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(10), 
             ],
             decoration: const InputDecoration(
               labelText: "Número",
@@ -1200,7 +1237,7 @@ Future<void> _llamarNumero(BuildContext context, String numero) async {
 bool _enviandoAlerta = false;
 
 Future<void> _enviarAlerta() async {
-  if (_enviandoAlerta) return; // evita pulsaciones dobles
+  if (_enviandoAlerta) return;
   _enviandoAlerta = true;
 
   try {
@@ -1247,11 +1284,10 @@ Future<void> _enviarAlerta() async {
       circleIds.add(doc.id);
     }
 
-    // Crear UNA sola alerta para todos los círculos
     final alertaRef = FirebaseFirestore.instance.collection('alertasCirculos').doc();
     Map<String, dynamic> alertaData = {
       'docId': alertaRef.id,
-      'circleIds': circleIds,            // <-- todos los IDs de los círculos
+      'circleIds': circleIds,            
       'mensaje': '¡$nombre ha enviado una alerta SOS!',
       'emisorId': uid,
       'name': nombre,
@@ -1281,8 +1317,9 @@ Future<void> _enviarAlerta() async {
 void _escucharAlertasSmart() {
   FirebaseFirestore.instance
       .collection('alertas')
+      .where('origen', isEqualTo: 'wear')
       .orderBy('createdAt', descending: true)
-      .limit(1) 
+      .limit(1)
       .snapshots()
       .listen((snapshot) {
     if (snapshot.docs.isNotEmpty) {
@@ -1290,11 +1327,10 @@ void _escucharAlertasSmart() {
       final data = doc.data();
       final lat = (data['lat'] as num?)?.toDouble();
       final lon = (data['lon'] as num?)?.toDouble();
-      final mensaje = data['mensaje']?.toString() ?? "Alerta sin mensaje";
-      final fecha = data['createdAt']?.toString() ?? "Sin fecha";
+      final fecha = data['createdAt']?.toDate();
 
-      if (lat != null && lon != null) {
-        _mostrarAlertaEnMapa("Alerta SmartWatch\n¡$mensaje!", lat, lon);
+      if (lat != null && lon != null && fecha != null && fecha.isAfter(_appStartTime)) {
+        _mostrarAlertaSmartwatch(doc.data());
       }
     }
   });
@@ -1309,9 +1345,11 @@ Future<void> irALaUltimaAlerta() async {
       final double? lat = (data['latitud'] as num?)?.toDouble();
       final double? lng = (data['longitud'] as num?)?.toDouble();
       final String timestamp = data['timestamp']?.toString() ?? "Sin fecha";
+      final String userName = data['nombre']?.toString() ?? 'Usuario';
+      final String phone = data['numero']?.toString() ?? '';
 
       if (lat != null && lng != null) {
-        _mostrarAlertaEnMapa("Alerta IoT\n¡Estoy en peligro!", lat, lng);
+        _mostrarAlertaEnMapaIoT("Alerta IoT\n¡Estoy en peligro!", lat, lng, userName, phone);
       } else {
         print("No hay coordenadas disponibles en la última alerta");
       }
@@ -1322,7 +1360,6 @@ Future<void> irALaUltimaAlerta() async {
 }
 
 
-
 void _escucharAlertasIoT() {
   _ref.child('mensaje').onValue.listen((event) {
     final data = event.snapshot.value as Map<dynamic, dynamic>?;
@@ -1330,15 +1367,177 @@ void _escucharAlertasIoT() {
     if (data != null) {
       final double? lat = (data['latitud'] as num?)?.toDouble();
       final double? lng = (data['longitud'] as num?)?.toDouble();
-      final String timestamp = data['timestamp']?.toString() ?? "Sin fecha";
+      final String timestampStr = data['timestamp']?.toString() ?? "";
+      final fecha = timestampStr.isNotEmpty ? DateTime.tryParse(timestampStr) : null;
+      final String userName = data['nombre']?.toString() ?? 'Usuario';
+      final String phone = data['numero']?.toString() ?? '';
 
-      if (lat != null && lng != null) {
-        _mostrarAlertaEnMapa("Alerta IoT\n¡Estoy en peligro!", lat, lng);
-      } else {
-        print("No hay coordenadas disponibles en la alerta IoT");
+      if (lat != null && lng != null && fecha != null && fecha.isAfter(_appStartTime)) {
+        _mostrarAlertaEnMapaIoT("Alerta IoT\n¡Estoy en peligro!", lat, lng, userName, phone);
       }
     }
   });
+}
+
+void _mostrarAlertaSmartwatch(Map<String, dynamic> alerta) async {
+  if (mapboxMapController == null) return;
+
+  final double? lat = (alerta['lat'] as num?)?.toDouble();
+  final double? lon = (alerta['lon'] as num?)?.toDouble();
+  final mensaje = alerta['mensaje']?.toString() ?? "Alerta sin mensaje";
+  final phone = alerta['phone']?.toString() ?? '';
+  final userName = alerta['userName']?.toString() ?? 'Usuario';
+
+  if (lat == null || lon == null) return;
+
+  setState(() {
+    _seguirUsuario = false;
+  });
+
+  await mapboxMapController!.flyTo(
+    mp.CameraOptions(
+      center: mp.Point(coordinates: mp.Position(lon, lat)),
+      zoom: 15.0,
+    ),
+    mp.MapAnimationOptions(duration: 1000),
+  );
+
+  if (pointAnnotationManager != null) {
+    final idAlerta = "$lat-$lon";
+    if (!alertasAnnotations.containsKey(idAlerta)) {
+      final ByteData bytes = await rootBundle.load("assets/alert.png");
+      final Uint8List imageData = bytes.buffer.asUint8List();
+
+      final annotation = await pointAnnotationManager!.create(
+        mp.PointAnnotationOptions(
+          geometry: mp.Point(coordinates: mp.Position(lon, lat)),
+          image: imageData,
+          iconSize: 0.35,
+          iconOffset: [0, -80],
+          textField: "$userName: $mensaje",
+          textSize: 14.0,
+          textOffset: [0, 2.0],
+          textColor: Colors.black.value,
+          textHaloColor: Colors.white.value,
+          textHaloWidth: 2,
+        ),
+      );
+      alertasAnnotations[idAlerta] = annotation!;
+    }
+  }
+
+  _player.setReleaseMode(ReleaseMode.loop);
+  await _player.play(AssetSource('sounds/alert.mp3'));
+
+  await showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.red,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: const [
+                  Icon(Icons.watch, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text(
+                    "Alerta Smartwatch",
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 26),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text(
+                mensaje,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "De: $userName",
+                style: const TextStyle(color: Colors.white, fontSize: 18),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "Ubicación: ${lat.toStringAsFixed(6)}, ${lon.toStringAsFixed(6)}",
+                style: const TextStyle(color: Colors.white, fontSize: 16),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                "Protocolo:",
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                "1. Llama inmediatamente al usuario o servicios de emergencia.\n"
+                "2. Dirígete a la ubicación si es seguro.\n"
+                "3. No ignores la alerta.",
+                style: TextStyle(color: Colors.white, fontSize: 16),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  if (phone.isNotEmpty)
+                    TextButton(
+                      onPressed: () {
+                        _player.stop();
+                        Navigator.of(context, rootNavigator: true).pop();
+                        _llamarNumero(context, phone);
+                      },
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.red,
+                        backgroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: const Text(
+                        "Llamar",
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  const SizedBox(width: 8),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _player.stop();
+                    },
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      backgroundColor: Colors.red,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: const Text(
+                      "Cerrar",
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 
@@ -1346,29 +1545,13 @@ void _escucharAlertasIoT() {
 
 
 
-// Función que muestra la alerta en el mapa y abre el diálogo
-void _mostrarAlertaEnMapa(String mensaje, double lat, double lng, {Timestamp? createdAt}) async {
+void _mostrarAlertaEnMapaIoT(String mensaje, double lat, double lng, String userName, String phone, {Timestamp? createdAt}) async {
   if (mapboxMapController == null) return;
 
   setState(() {
-    _seguirUsuario = false; // desactiva seguimiento al mostrar alerta
+    _seguirUsuario = false;
   });
 
-  if (createdAt != null) {
-    final ahora = DateTime.now();
-    final alertaFecha = createdAt.toDate();
-    final diferencia = ahora.difference(alertaFecha);
-    if (diferencia.inSeconds >= 5) {
-      final idAlerta = "$lat-$lng";
-      if (alertasAnnotations.containsKey(idAlerta)) {
-        await pointAnnotationManager?.delete(alertasAnnotations[idAlerta]!);
-        alertasAnnotations.remove(idAlerta);
-      }
-      return;
-    }
-  }
-
-  // Mueve la cámara al punto de la alerta
   await mapboxMapController!.flyTo(
     mp.CameraOptions(
       center: mp.Point(coordinates: mp.Position(lng, lat)),
@@ -1377,7 +1560,6 @@ void _mostrarAlertaEnMapa(String mensaje, double lat, double lng, {Timestamp? cr
     mp.MapAnimationOptions(duration: 1000),
   );
 
-  // Añade el marcador de alerta si no existe
   if (pointAnnotationManager != null) {
     final idAlerta = "$lat-$lng";
     if (!alertasAnnotations.containsKey(idAlerta)) {
@@ -1390,7 +1572,7 @@ void _mostrarAlertaEnMapa(String mensaje, double lat, double lng, {Timestamp? cr
           image: imageData,
           iconSize: 0.35,
           iconOffset: [0, -80],
-          textField: mensaje,
+          textField: "$userName: $mensaje",
           textSize: 14.0,
           textOffset: [0, 2.0],
           textColor: Colors.black.value,
@@ -1402,7 +1584,6 @@ void _mostrarAlertaEnMapa(String mensaje, double lat, double lng, {Timestamp? cr
     }
   }
 
-  // Muestra el diálogo de alerta si no está abierto
   if (!_dialogoAbierto) {
     _dialogoAbierto = true;
 
@@ -1411,71 +1592,118 @@ void _mostrarAlertaEnMapa(String mensaje, double lat, double lng, {Timestamp? cr
 
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: Colors.red,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: const [
-            Icon(Icons.warning, color: Colors.white),
-            SizedBox(width: 8),
-            Text(
-              "Alerta",
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
-              ),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              mensaje,
-              style: const TextStyle(
-                fontSize: 16,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "Ubicación: ${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}",
-              style: const TextStyle(
-                fontSize: 14,
-                color: Colors.white,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _dialogoAbierto = false;
-              _player.stop();
-            },
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.white,
-              backgroundColor: Colors.red,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            child: const Text(
-              "Cerrar",
-              style: TextStyle(fontWeight: FontWeight.bold),
+      barrierDismissible: false,
+      builder: (_) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.red,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: const [
+                    Icon(Icons.sensors, color: Colors.white),
+                    SizedBox(width: 8),
+                    Text(
+                      "Alerta IoT",
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 26),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  mensaje,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "De: $userName",
+                  style: const TextStyle(color: Colors.white, fontSize: 18),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "Ubicación: ${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}",
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  "Protocolo:",
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  "1. Llama inmediatamente al usuario o servicios de emergencia.\n"
+                  "2. Dirígete a la ubicación si es seguro.\n"
+                  "3. No ignores la alerta.",
+                  style: TextStyle(color: Colors.white, fontSize: 16),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    if (phone.isNotEmpty)
+                      TextButton(
+                        onPressed: () {
+                          _player.stop();
+                          Navigator.of(context, rootNavigator: true).pop();
+                          _llamarNumero(context, phone);
+                        },
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.red,
+                          backgroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8)),
+                        ),
+                        child: const Text(
+                          "Llamar",
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    const SizedBox(width: 8),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _player.stop();
+                        _dialogoAbierto = false;
+                      },
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        backgroundColor: Colors.red,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: const Text(
+                        "Cerrar",
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
 }
 
-
-
-
-
+DateTime _appStartTime = DateTime.now();
 
 void _escucharAlertasEnTiempoReal() {
   final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -1503,7 +1731,7 @@ void _escucharAlertasEnTiempoReal() {
       });
     } else {
       setState(() {
-        _mostrarNotificacion = false; // oculta la bolita si ya viste la alerta
+        _mostrarNotificacion = false;
       });
     }
   });
@@ -1573,7 +1801,6 @@ Future<void> _ajustarZoomParaTodos(Map<String, mp.Point> posiciones, {bool forza
 
 // Configuración del seguimiento de la posición del usuario
 
-
 Future<void> _setupPositionTracking() async {
   final serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
   if (!serviceEnabled) return;
@@ -1587,12 +1814,10 @@ Future<void> _setupPositionTracking() async {
     return;
   }
 
-  // Mostrar puck azul
   await mapboxMapController?.location.updateSettings(
     mp.LocationComponentSettings(enabled: true, pulsingEnabled: true),
   );
 
-  // Escuchar ubicación
   userPositionStream = gl.Geolocator.getPositionStream(
     locationSettings: const gl.LocationSettings(
       accuracy: gl.LocationAccuracy.best,
@@ -1607,7 +1832,7 @@ Future<void> _setupPositionTracking() async {
 
     if (_seguirUsuario) {
       await mapboxMapController!.easeTo(
-        mp.CameraOptions(center: puntoUsuario, zoom: 15.0),
+        mp.CameraOptions(center: puntoUsuario, zoom: 13),
         mp.MapAnimationOptions(duration: 500),
       );
     }
@@ -1669,136 +1894,128 @@ void _mostrarModalReporteHistorico(BuildContext context) {
   final TextEditingController descripcionController = TextEditingController();
   final user = FirebaseAuth.instance.currentUser;
 
-showModalBottomSheet(
-  context: context,
-  isScrollControlled: true, 
-  shape: const RoundedRectangleBorder(
-    borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
-  ),
-  builder: (context) {
-    final mediaQuery = MediaQuery.of(context);
-    final theme = Theme.of(context);
-    final greenColor = theme.primaryColor;
-    final orangeColor = theme.colorScheme.secondary;
-    return Container(
-      color: greenColor, 
-      child: Padding(
-        padding: EdgeInsets.only(
-          bottom: mediaQuery.viewInsets.bottom + 20,
-          left: 20,
-          right: 20,
-          top: 20,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min, 
-          children: [
-            Text(
-            'Reporte',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            ),
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true, 
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+    ),
+    builder: (context) {
+      final mediaQuery = MediaQuery.of(context);
+      final theme = Theme.of(context);
+      final greenColor = theme.primaryColor;
+      final orangeColor = theme.colorScheme.secondary;
+
+      return Container(
+        color: greenColor, 
+        child: Padding(
+          padding: EdgeInsets.only(
+            bottom: mediaQuery.viewInsets.bottom + 20,
+            left: 20,
+            right: 20,
+            top: 20,
           ),
-            const SizedBox(height: 15),
-            TextField(
-              controller: descripcionController,
-              maxLines: 5,
-              decoration: InputDecoration(
-                filled: true,
-                fillColor: Colors.white,
-                enabledBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: orangeColor),
+          child: Column(
+            mainAxisSize: MainAxisSize.min, 
+            children: [
+              Text(
+                'Reporte',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
                 ),
-                focusedBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: orangeColor, width: 2),
+              ),
+              const SizedBox(height: 15),
+              TextField(
+                controller: descripcionController,
+                maxLines: 5,
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: Colors.white,
+                  enabledBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: orangeColor),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: orangeColor, width: 2),
+                  ),
+                  labelText: 'Descripción',
+                  hintText: 'Escribe aquí la descripción del reporte...',
                 ),
-                labelText: 'Descripción',
-                hintText: 'Escribe aquí la descripción del reporte...',
               ),
-            ),
-            const SizedBox(height: 15),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-              ),
-              onPressed: () async {
-                final descripcion = descripcionController.text.trim();
+              const SizedBox(height: 15),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                ),
+                onPressed: () async {
+                  final descripcion = descripcionController.text.trim();
 
-                if (descripcion.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('La descripción no puede estar vacía')),
-                  );
-                  return;
-                }
+                  if (descripcion.isEmpty) {
+                    return;
+                  }
 
-                if (user == null) {
-                  Navigator.pop(context);
-                  return;
-                }
+                  if (user == null) {
+                    Navigator.pop(context);
+                    return;
+                  }
 
-                final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-                final nombre = userDoc.data()?['name'] ?? 'Amsp';
+                  final userDoc = await FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(user.uid)
+                      .get();
+                  final nombre = userDoc.data()?['name'] ?? 'Amsp';
 
-                gl.Position? posicion;
-                try {
-                  bool servicioActivo = await gl.Geolocator.isLocationServiceEnabled();
-                  if (!servicioActivo) {
-                    posicion = null;
-                  } else {
-                    gl.LocationPermission permiso = await gl.Geolocator.checkPermission();
-                    if (permiso == gl.LocationPermission.denied || permiso == gl.LocationPermission.deniedForever) {
-                      permiso = await gl.Geolocator.requestPermission();
+                  gl.Position? posicion;
+                  try {
+                    bool servicioActivo = await gl.Geolocator.isLocationServiceEnabled();
+                    if (servicioActivo) {
+                      gl.LocationPermission permiso = await gl.Geolocator.checkPermission();
                       if (permiso == gl.LocationPermission.denied || permiso == gl.LocationPermission.deniedForever) {
-                        posicion = null;
+                        permiso = await gl.Geolocator.requestPermission();
+                      }
+                      if (permiso != gl.LocationPermission.denied && permiso != gl.LocationPermission.deniedForever) {
+                        posicion = await gl.Geolocator.getCurrentPosition(desiredAccuracy: gl.LocationAccuracy.high);
                       }
                     }
-                    if (permiso != gl.LocationPermission.denied && permiso != gl.LocationPermission.deniedForever) {
-                      posicion = await gl.Geolocator.getCurrentPosition(desiredAccuracy: gl.LocationAccuracy.high);
-                    }
+                  } catch (e) {
+                    posicion = null;
                   }
-                } catch (e) {
-                  posicion = null;
-                }
 
-                Map<String, dynamic> reporteData = {
-                  'mensaje': descripcion,
-                  'name': nombre,
-                  'timestamp': FieldValue.serverTimestamp(),
-                  'uid': user.uid,
-                };
-
-                if (posicion != null) {
-                  reporteData['ubicacion'] = {
-                    'lat': posicion.latitude,
-                    'lng': posicion.longitude,
+                  Map<String, dynamic> reporteData = {
+                    'mensaje': descripcion,
+                    'name': nombre,
+                    'timestamp': FieldValue.serverTimestamp(),
+                    'uid': user.uid,
                   };
-                }
 
-                await FirebaseFirestore.instance
-                    .collection('users')
-                    .doc(user.uid)
-                    .collection('reportes_historicos')
-                    .add(reporteData);
+                  if (posicion != null) {
+                    reporteData['ubicacion'] = {
+                      'lat': posicion.latitude,
+                      'lng': posicion.longitude,
+                    };
+                  }
 
-                Navigator.pop(context);
+                  await FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(user.uid)
+                      .collection('reportes_historicos')
+                      .add(reporteData);
 
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Reporte histórico guardado')),
-                );
-              },
-              child: Text(
-                'Guardar reporte',
-                style: TextStyle(color: greenColor),
+                  Navigator.pop(context);
+                },
+                child: Text(
+                  'Guardar reporte',
+                  style: TextStyle(color: greenColor),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    );
-  },
-);
+      );
+    },
+  );
 }
-//
+
 
 
 // Mostrar modal de alerta SOS
@@ -1868,13 +2085,13 @@ void _showSosModal(BuildContext context) {
     },
   ).then((_) {
     timer?.cancel();
+    _mostrarModalAlerta = false;
   });
 }
-//
 
 
 
-// widget para mostrar un contacto de emergencia
+
 Widget _contactTile(BuildContext context, String id, String nombre, String numero) {
   return Container(
     margin: const EdgeInsets.only(bottom: 15),
@@ -1910,7 +2127,6 @@ Widget _contactTile(BuildContext context, String id, String nombre, String numer
 
 
 
-// Construcción del widget principal de la página de inicio
 @override
 Widget build(BuildContext context) {
   final theme = Theme.of(context);
@@ -1936,13 +2152,6 @@ Widget build(BuildContext context) {
         );
       }, contrastColor),
       actions: [
-      //_iconButton(Icons.wifi_protected_setup, () {
-     //irALaUltimaAlerta(); // llama a la función que ya escucha la alerta IoT
-    //}, contrastColor),
-    //_iconButton(Icons.access_alarm, () {
-      //_escucharAlertasSmart(); // llama a la función que ya escucha la alerta IoT
-    //}, contrastColor),
-
         Stack(
           children: [
             _iconButton(

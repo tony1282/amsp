@@ -3,6 +3,7 @@ import 'package:amsp/pages/inicio_sesion_screen.dart';
 import 'package:amsp/pages/phone_number_screen.dart';
 import 'package:amsp/pages/zona_riesgo_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
@@ -20,7 +21,6 @@ Future<void> main() async {
   runApp(const AppInitWrapper());
 }
 
-/// Widget que espera la inicialización completa antes de mostrar la app principal
 class AppInitWrapper extends StatefulWidget {
   const AppInitWrapper({super.key});
 
@@ -41,6 +41,7 @@ class _AppInitWrapperState extends State<AppInitWrapper> {
   Future<void> _initializeApp() async {
     try {
       await Firebase.initializeApp();
+      FirebaseDatabase.instance.setPersistenceEnabled(false);
       await dotenv.load(fileName: ".env");
 
       final token = dotenv.env["MAPBOX_ACCESS_TOKEN"];
@@ -61,7 +62,6 @@ class _AppInitWrapperState extends State<AppInitWrapper> {
   @override
   Widget build(BuildContext context) {
     if (_error != null) {
-      // Mostrar error en pantalla si la inicialización falló
       return MaterialApp(
         home: Scaffold(
           body: Center(
@@ -96,7 +96,6 @@ class _AppInitWrapperState extends State<AppInitWrapper> {
   }
 }
 
-/// Widget principal de la aplicación
 class MainApp extends StatelessWidget {
   const MainApp({super.key});
 
@@ -133,7 +132,6 @@ class MainApp extends StatelessWidget {
   }
 }
 
-/// Widget que decide qué pantalla mostrar según estado de autenticación
 class AuthWrapper extends StatelessWidget {
   const AuthWrapper({super.key});
 
@@ -147,7 +145,6 @@ class AuthWrapper extends StatelessWidget {
   }
 }
 
-/// Función para obtener la ubicación actual del dispositivo
 Future<gl.Position?> getCurrentLocation() async {
   final serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
   if (!serviceEnabled) return null;

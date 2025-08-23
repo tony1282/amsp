@@ -268,8 +268,6 @@ class _AgregarDispositivoScreenState extends State<AgregarDispositivoScreen>
             ),
 
             const Spacer(flex: 2),
-
-            // Botones de acción
             if (_checking)
               const _CheckingButton()
             else if (_connected)

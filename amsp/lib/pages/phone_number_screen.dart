@@ -63,7 +63,7 @@ class _PhoneNumberScreenState extends State<PhoneNumberScreen> {
                 radius: screenWidth * 0.16,
                 backgroundImage: const AssetImage('assets/images1.jpg'),
               ),
-              SizedBox(height: screenHeight * 0.01),
+              SizedBox(height: screenHeight * 0.04),
 
               const Text(
                 "Ingresa tu número de teléfono",

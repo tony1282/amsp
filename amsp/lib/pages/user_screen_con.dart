@@ -2,6 +2,7 @@ import 'package:amsp/pages/inicio_sesion_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/services.dart';
 
 class UserScreenCon extends StatefulWidget {
   const UserScreenCon({super.key});
@@ -71,7 +72,10 @@ class _UserScreenConState extends State<UserScreenCon> {
             controller: controller,
             keyboardType:
                 campo == 'phone' ? TextInputType.phone : TextInputType.text,
-            style: const TextStyle(color: Colors.white), 
+            style: const TextStyle(color: Colors.white),
+            inputFormatters: campo == 'phone'
+                ? [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(10)]
+                : null,
             decoration: InputDecoration(
               labelText: campo == 'name' ? 'Nombre' : 'Teléfono',
               labelStyle: const TextStyle(color: Colors.white70),
