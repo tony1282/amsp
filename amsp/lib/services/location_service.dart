@@ -7,6 +7,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 class LocationService {
   static StreamSubscription<Position>? _positionSubscription;
+  static Position? _lastPosition;
 
   static Future<void> startLocationUpdates() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -31,40 +32,52 @@ class LocationService {
 
     if (Platform.isAndroid) {
       locationSettings = AndroidSettings(
-        accuracy: LocationAccuracy.high, 
-        intervalDuration: const Duration(seconds: 1), 
-        distanceFilter: 0, 
+        accuracy: LocationAccuracy.medium, // menos consumo que high
+        intervalDuration: const Duration(seconds: 15), // cada 15s
+        distanceFilter: 20, // solo si se movió más de 20m
       );
     } else if (Platform.isIOS || Platform.isMacOS) {
       locationSettings = AppleSettings(
-        accuracy: LocationAccuracy.high, 
-        distanceFilter: 0, 
+        accuracy: LocationAccuracy.medium,
+        distanceFilter: 20,
       );
     } else {
       locationSettings = const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 0,
+        accuracy: LocationAccuracy.medium,
+        distanceFilter: 20,
       );
     }
+
     _positionSubscription = Geolocator.getPositionStream(
       locationSettings: locationSettings,
     ).listen((Position position) async {
       final lat = position.latitude;
       final lng = position.longitude;
 
-      print('Nueva ubicación recibida: lat=$lat, lng=$lng');
-      final locationData = {
-        'lat': lat,
-        'lng': lng,
-        'timestamp': FieldValue.serverTimestamp(),
-      };
+      // Solo guardar si la ubicación cambió más de 20 metros
+      if (_lastPosition == null || Geolocator.distanceBetween(
+        _lastPosition!.latitude,
+        _lastPosition!.longitude,
+        position.latitude,
+        position.longitude,
+      ) > 20) {
+        
+        _lastPosition = position;
 
-      await FirebaseFirestore.instance.collection('ubicaciones').doc(user.uid).set(
-        locationData,
-        SetOptions(merge: true), 
-      );
+        print('Nueva ubicación recibida: lat=$lat, lng=$lng');
+        final locationData = {
+          'lat': lat,
+          'lng': lng,
+          'timestamp': FieldValue.serverTimestamp(),
+        };
 
-      print('Ubicación guardada en Firestore para UID: ${user.uid}');
+        await FirebaseFirestore.instance.collection('ubicaciones').doc(user.uid).set(
+          locationData,
+          SetOptions(merge: true), 
+        );
+
+        print('Ubicación guardada en Firestore para UID: ${user.uid}');
+      }
     });
   }
 
@@ -72,3 +85,4 @@ class LocationService {
     await _positionSubscription?.cancel();
   }
 }
+

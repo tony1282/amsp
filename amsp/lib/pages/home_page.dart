@@ -10,12 +10,14 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart' as gl;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:amsp/services/circulos_service.dart';
 
 
 // Importar pantallas
@@ -36,6 +38,7 @@ class HomePage extends StatefulWidget {
   @override
   State<HomePage> createState() => _HomePageState();
 }
+
 
 class MiClase {
   late double valor;
@@ -258,39 +261,9 @@ void initState() {
 
 
 // circulos del usuario
-  Future<List<QueryDocumentSnapshot>> _getCirculosUsuario() async {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) return [];
-
-    final circulosCreadosSnap = await FirebaseFirestore.instance
-        .collection('circulos')
-        .where('creador', isEqualTo: currentUser.uid)
-        .get();
-
-    final circulosColeccion = await FirebaseFirestore.instance.collection('circulos').get();
-
-    List<QueryDocumentSnapshot> circulosUsuario = [...circulosCreadosSnap.docs];
-
-    for (var doc in circulosColeccion.docs) {
-      final data = doc.data();
-      final rawMiembros = data['miembros'] ?? [];
-
-      final miembros = (rawMiembros as List)
-          .where((e) => e is Map<String, dynamic>)
-          .cast<Map<String, dynamic>>();
-
-      if (miembros.any((m) => m['uid'] == currentUser.uid)) {
-        if (!circulosUsuario.any((d) => d.id == doc.id)) {
-          circulosUsuario.add(doc);
-        }
-      }
-    }
-    return circulosUsuario;
-  }
-
 
 Future<void> _mostrarModalSeleccionCirculo() async {
-  final circulos = await _getCirculosUsuario();
+  final circulos = await CirculosService.getCirculosUsuario();
 
   if (!mounted) return;
 
@@ -437,7 +410,7 @@ Future<void> _escucharAlertasTodosCirculos() async {
   print('currentUser: ${currentUser?.uid}');
   if (currentUser == null) return;
 
-  final circulos = await _getCirculosUsuario();
+  final circulos = await CirculosService.getCirculosUsuario();
   final circleIds = circulos.map((d) => d.id).toList();
   print('círculos encontrados: $circleIds');
   if (circleIds.isEmpty) return;
@@ -745,7 +718,21 @@ Future<void> _moverMarcadorFluido(
   }
 
   final origen = marcador.geometry!;
-  final frames = 30; 
+
+  if (origen.coordinates.lat == destino.coordinates.lat &&
+      origen.coordinates.lng == destino.coordinates.lng) {
+    return;
+  }
+
+  final distancia = Geolocator.distanceBetween(
+    origen.coordinates.lat.toDouble(),
+    origen.coordinates.lng.toDouble(),
+    destino.coordinates.lat.toDouble(),
+    destino.coordinates.lng.toDouble(),
+  );
+  if (distancia < 4) return;
+
+  final frames = 10; 
   const frameDelay = Duration(milliseconds: 33);
 
   for (int i = 1; i <= frames; i++) {
@@ -765,7 +752,6 @@ Future<void> _moverMarcadorFluido(
     await Future.delayed(frameDelay);
   }
 }
-
 
 Future<void> _actualizarMarcadorMiembro(
     String uid, double lat, double lng, String name) async {
@@ -801,12 +787,14 @@ Future<void> _actualizarMarcadorMiembro(
         textOffset: [0, 2.1],
         textColor: const Color.fromARGB(255, 0, 0, 0).value,
         textHaloColor: Colors.white.value,
-        textHaloWidth: 3,
+        textHaloWidth: 3.0,
       ),
     );
     miembrosTextAnnotations[uid] = textAnnotation!;
   }
 }
+
+
 
 
 
