@@ -31,7 +31,7 @@ class _PhoneNumberScreenState extends State<PhoneNumberScreen> {
       if (context.mounted) {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const HomePage(circleId: '',)),
+          MaterialPageRoute(builder: (context) => HomePage(circleId: '',)),
         );
       }
     } else {

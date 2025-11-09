@@ -141,7 +141,7 @@ class AuthWrapper extends StatelessWidget {
     if (user == null) {
       return const InicioSesion();
     }
-    return const HomePage(circleId: null);
+    return HomePage(circleId: null);
   }
 }
 
