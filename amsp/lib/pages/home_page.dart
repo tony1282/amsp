@@ -3,9 +3,11 @@ import 'dart:collection' show Queue;
 import 'dart:math';
 import 'package:amsp/functions/callFunctions.dart';
 import 'package:amsp/functions/circleUbications.dart';
+import 'package:amsp/functions/historical_report.dart';
 import 'package:amsp/functions/iotAlerts.dart';
 import 'package:amsp/functions/mapFunctions.dart';
 import 'package:amsp/functions/markers.dart';
+import 'package:amsp/functions/phone_number_functions.dart';
 import 'package:amsp/functions/riskZones.dart';
 import 'package:amsp/functions/smartAlerts.dart';
 import 'package:amsp/functions/userData.dart';
@@ -36,19 +38,15 @@ import 'agregar_dispositivo_screen.dart';
 import 'package:amsp/functions/map_alerts.dart';
 
 
-
 class HomePage extends StatefulWidget {
   final String? circleId;
   final MapFunctions mapFunctions = MapFunctions();
 
-  
   HomePage({super.key, required this.circleId});
-  
 
   @override
   State<HomePage> createState() => _HomePageState();
 }
-
 
 class MiClase {
   late double valor;
@@ -60,10 +58,7 @@ class MiClase {
   }
 }
 
-
 class _HomePageState extends State<HomePage> {
-  
-  
   //
   final alerts = MapAlerts();
   final circleUbi = CircleUbications();
@@ -77,9 +72,9 @@ class _HomePageState extends State<HomePage> {
   final circleSer = CirculosService();
   final mark = Markers();
   final calls = Callfunctions();
+  final number = PhoneNumberFunctions();
+  final report = HistoricalReport();
   // 
-
-
 
   StreamSubscription? userPositionStream;  
   mp.MapboxMap? mapboxMapController;
@@ -91,7 +86,6 @@ class _HomePageState extends State<HomePage> {
   mp.Point? ultimaPosicion;
   mp.Point? _ultimaUbicacionPendiente;
 
-  
 
   Map<String, DateTime> _ultimoUpdateMarcador = {};
   Map<String, StreamSubscription<DocumentSnapshot>> miembrosListeners = {};
@@ -104,7 +98,6 @@ class _HomePageState extends State<HomePage> {
   Map<String, StreamSubscription> _alertSubs = {};
   
 
-
   bool esCreadorFamilia = false;
   bool cargandoUsuario = true;
   bool _mostrarNotificacion = true;
@@ -116,7 +109,6 @@ class _HomePageState extends State<HomePage> {
   bool _seguirUsuarioTemporal = true;
   bool _alertaActiva = false;
 
-
   StreamSubscription? _alertasSubscription;
   StreamSubscription? _accelerometerSubscription;
 
@@ -124,7 +116,6 @@ class _HomePageState extends State<HomePage> {
   final AudioPlayer _player = AudioPlayer();
   final Set<String> _processedAlertIds = {};
   final Queue<Map<String,dynamic>> _alertaQueue = Queue();
-
 
 
   Set<String> _alertasProcesadas = {};
@@ -135,7 +126,6 @@ class _HomePageState extends State<HomePage> {
   String? _mensajeAlerta;
 
 
-
   List<String> codigosRiesgo = [];
 
 
@@ -144,7 +134,6 @@ class _HomePageState extends State<HomePage> {
   final Map<String, bool> _initialCircleFetched = {};
 
   
-
   Timestamp? _ultimoTimestampVisto; 
   DateTime _ultimaSacudida = DateTime.now().subtract(const Duration(seconds: 10));
   DateTime _sessionStart = DateTime.now();
@@ -158,8 +147,6 @@ void initState() {
   super.initState();
   map.centrarEnUbicacionActual();
   setupPositionTracking();
-
-  
 
   print("initState ejecutado");
 
@@ -231,28 +218,20 @@ void initState() {
 }
 
 
-
-
-
 @override
 void dispose() {
   userPositionStream?.cancel();
-
   for (var sub in miembrosListeners.values) {
     sub.cancel();
   }
   miembrosListeners.clear();
-
   alerts.cancelarEscuchasAlertas();
   _accelerometerSubscription?.cancel();
   _alertasSubscription?.cancel();
-
   pointAnnotationManager?.deleteAll();
   circleAnnotationManager?.deleteAll();
-
   super.dispose();
 }
-
 
 
 Future<void> _mostrarModalSeleccionCirculo() async {
@@ -365,8 +344,6 @@ Future<void> _mostrarModalSeleccionCirculo() async {
 }
 
 
-
-
 void procesarAlertas(BuildContext context) async {
   final alerta = alerts.obtenerSiguienteAlerta();
   if (alerta == null || alerts.dialogoAbierto) return;
@@ -443,8 +420,6 @@ void procesarAlertas(BuildContext context) async {
     procesarAlertas(context);
   });
 }
-
-
 
 
 void _mostrarOpcionesCirculo() {
@@ -529,6 +504,7 @@ void _mostrarOpcionesCirculo() {
   );
 }
 
+
 Future<void> _modalTelefono(BuildContext context) async {
   final theme = Theme.of(context);
   final greenColor = theme.primaryColor;
@@ -587,7 +563,7 @@ Future<void> _modalTelefono(BuildContext context) async {
             ),
             const SizedBox(height: 20),
             ElevatedButton.icon(
-              onPressed: () => _mostrarFormularioAgregar(context),
+              onPressed: () => number.mostrarFormularioAgregar(context),
               icon: const Icon(Icons.add),
               label: const Text('Agregar Contacto'),
               style: ElevatedButton.styleFrom(
@@ -604,168 +580,6 @@ Future<void> _modalTelefono(BuildContext context) async {
     },
   );
 }
-
-void _mostrarFormularioAgregar(BuildContext context) {
-  final theme = Theme.of(context);
-  final greenColor = theme.primaryColor;
-  final _nombreController = TextEditingController();
-  final _numeroController = TextEditingController();
-  final userId = FirebaseAuth.instance.currentUser?.uid;
-
-  showDialog(
-    context: context,
-    builder: (_) => AlertDialog(
-      backgroundColor: greenColor,
-      title: const Text("Agregar Contacto", style: TextStyle(color: Colors.white)),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _nombreController,
-            textCapitalization: TextCapitalization.words, 
-            decoration: const InputDecoration(
-              labelText: "Nombre",
-              labelStyle: TextStyle(color: Colors.white70),
-              enabledBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.white70),
-              ),
-              focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.white),
-              ),
-            ),
-            style: const TextStyle(color: Colors.white),
-          ),
-          TextField(
-            controller: _numeroController,
-            keyboardType: TextInputType.number, 
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(10), 
-            ],
-            decoration: const InputDecoration(
-              labelText: "Número",
-              labelStyle: TextStyle(color: Colors.white70),
-              enabledBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.white70),
-              ),
-              focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.white),
-              ),
-            ),
-            style: const TextStyle(color: Colors.white),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text("Cancelar", style: TextStyle(color: Colors.white)),
-        ),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.white,
-            foregroundColor: greenColor,
-          ),
-          onPressed: () async {
-            final nombre = _nombreController.text.trim();
-            final numero = _numeroController.text.trim();
-            if (nombre.isEmpty || numero.isEmpty || numero.length != 10) return;
-
-            await FirebaseFirestore.instance
-                .collection('contactos')
-                .doc(userId)
-                .collection('contactos_emergencia')
-                .add({
-              'nombreContacto': nombre,
-              'numeroContacto': numero,
-              'fechaAgregado': FieldValue.serverTimestamp(),
-            });
-
-            Navigator.pop(context);
-          },
-          child: const Text("Guardar"),
-        ),
-      ],
-    ),
-  );
-}
-
-void _editarContacto(BuildContext context, String id, String nombreActual, String numeroActual) {
-  final theme = Theme.of(context);
-  final greenColor = theme.primaryColor;
-  final _nombreController = TextEditingController(text: nombreActual);
-  final _numeroController = TextEditingController(text: numeroActual);
-  final userId = FirebaseAuth.instance.currentUser?.uid;
-
-showDialog(
-    context: context,
-    builder: (_) => AlertDialog(
-      backgroundColor: greenColor,
-      title: const Text("Editar Contacto", style: TextStyle(color: Colors.white)),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _nombreController,
-            decoration: const InputDecoration(
-              labelText: "Nombre",
-              labelStyle: TextStyle(color: Colors.white70),
-              enabledBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.white70),
-              ),
-              focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.white),
-              ),
-            ),
-            style: const TextStyle(color: Colors.white),
-          ),
-          TextField(
-            controller: _numeroController,
-            decoration: const InputDecoration(
-              labelText: "Número",
-              labelStyle: TextStyle(color: Colors.white70),
-              enabledBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.white70),
-              ),
-              focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.white),
-              ),
-            ),
-            style: const TextStyle(color: Colors.white),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text("Cancelar", style: TextStyle(color: Colors.white)),
-        ),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.white,
-            foregroundColor: greenColor,
-          ),
-          onPressed: () async {
-            await FirebaseFirestore.instance
-                .collection('contactos')
-                .doc(userId)
-                .collection('contactos_emergencia')
-                .doc(id)
-                .update({
-              'nombreContacto': _nombreController.text.trim(),
-              'numeroContacto': _numeroController.text.trim(),
-            });
-            Navigator.pop(context);
-          },
-          child: const Text("Actualizar"),
-        ),
-      ],
-    ),
-  );
-}
-
-
-
 
 Future<void> setupPositionTracking() async {
   final serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
@@ -809,12 +623,6 @@ Future<void> setupPositionTracking() async {
   });
 }
 
-
-
-
-
-
-
 void _onMapCreated(mp.MapboxMap controller) async {
   mapboxMapController = controller;
   await aplicarUbicacionPendiente();
@@ -846,17 +654,17 @@ void _onMapCreated(mp.MapboxMap controller) async {
   smart.modalS.pointAnnotationManager = pointAnnotationManager;
   smart.escucharAlertasSmart(context);
 
-  // 🔹 Centrar automáticamente y activar seguimiento si _seguirUsuario es true
+  // Centrar automáticamente y activar seguimiento si _seguirUsuario es true
   if (map.seguirUsuario) {
-    await map.toggleSeguirUsuario(); // 🔹 Esto centra la cámara y activa seguimiento
+    await map.toggleSeguirUsuario(); // Esto centra la cámara y activa seguimiento
     setState(() {}); // 🔁 actualiza color del botón
   }
 
-  // 🔹 Escuchar ubicaciones del círculo si se seleccionó
+  // Escuchar ubicaciones del círculo si se seleccionó
   if (circuloSeleccionadoId != null && circuloSeleccionadoId!.isNotEmpty) {
     await circleUbi.escucharUbicacionesDelCirculo(circuloSeleccionadoId!);
 
-    // 🔹 Ajustar zoom automáticamente para mostrar todos los miembros
+    // Ajustar zoom automáticamente para mostrar todos los miembros
     Future.delayed(const Duration(milliseconds: 500), () async {
       if (circleUbi.todasPosiciones.isNotEmpty) {
         await map.ajustarZoomParaTodos(circleUbi.todasPosiciones);
@@ -867,22 +675,21 @@ void _onMapCreated(mp.MapboxMap controller) async {
   }
 }
 
-
 Future<void> cerrarCirculoSeleccionado() async {
   if (circuloSeleccionadoId == null) {
-    print("⚠️ No hay círculo seleccionado actualmente.");
+    print("No hay círculo seleccionado actualmente.");
     return;
   }
 
   print("Cerrando círculo: $circuloSeleccionadoNombre");
 
-  // 🔹 Cancelar escuchas activas de los miembros
+  // Cancelar escuchas activas de los miembros
   for (var sub in circleUbi.miembrosListeners.values) {
     await sub.cancel();
   }
   circleUbi.miembrosListeners.clear();
 
-  // 🔹 Borrar los marcadores de miembros del mapa
+  // Borrar los marcadores de miembros del mapa
   if (circleUbi.pointAnnotationManager != null) {
     for (var marker in circleUbi.mark.miembrosAnnotations.values) {
       await circleUbi.pointAnnotationManager!.delete(marker);
@@ -892,25 +699,23 @@ Future<void> cerrarCirculoSeleccionado() async {
     }
   }
 
-  // 🔹 Limpiar colecciones en memoria
+  // Limpiar colecciones en memoria
   circleUbi.todasPosiciones.clear();
   circleUbi.mark.miembrosAnnotations.clear();
   circleUbi.mark.miembrosTextAnnotations.clear();
 
-  // 🔹 Restaurar seguimiento y centrar en usuario
+  // Restaurar seguimiento y centrar en usuario
   map.seguirUsuario = true;
   await map.centrarEnUbicacionActual();
 
-  // 🔹 Limpiar selección actual
+  // Limpiar selección actual
   setState(() {
     circuloSeleccionadoId = null;
     circuloSeleccionadoNombre = null;
   });
 
-  print("✅ Círculo cerrado y mapa centrado en el usuario.");
+  print(" Círculo cerrado y mapa centrado en el usuario.");
 }
-
-
 
 Future<void> aplicarUbicacionPendiente() async {
   if (_ultimaUbicacionPendiente != null && mapboxMapController != null) {
@@ -920,133 +725,6 @@ Future<void> aplicarUbicacionPendiente() async {
     );
     _ultimaUbicacionPendiente = null;
   }
-}
-
-//Reporte histórico
-void _mostrarModalReporteHistorico(BuildContext context) {
-  final TextEditingController descripcionController = TextEditingController();
-  final user = FirebaseAuth.instance.currentUser;
-
-  showModalBottomSheet(
-    context: context,
-    isScrollControlled: true, 
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
-    ),
-    builder: (context) {
-      final mediaQuery = MediaQuery.of(context);
-      final theme = Theme.of(context);
-      final greenColor = theme.primaryColor;
-      final orangeColor = theme.colorScheme.secondary;
-
-      return Container(
-        color: greenColor, 
-        child: Padding(
-          padding: EdgeInsets.only(
-            bottom: mediaQuery.viewInsets.bottom + 20,
-            left: 20,
-            right: 20,
-            top: 20,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min, 
-            children: [
-              Text(
-                'Reporte',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 15),
-              TextField(
-                controller: descripcionController,
-                maxLines: 5,
-                decoration: InputDecoration(
-                  filled: true,
-                  fillColor: Colors.white,
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: orangeColor),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: orangeColor, width: 2),
-                  ),
-                  labelText: 'Descripción',
-                  hintText: 'Escribe aquí la descripción del reporte...',
-                ),
-              ),
-              const SizedBox(height: 15),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                ),
-                onPressed: () async {
-                  final descripcion = descripcionController.text.trim();
-
-                  if (descripcion.isEmpty) {
-                    return;
-                  }
-
-                  if (user == null) {
-                    Navigator.pop(context);
-                    return;
-                  }
-
-                  final userDoc = await FirebaseFirestore.instance
-                      .collection('users')
-                      .doc(user.uid)
-                      .get();
-                  final nombre = userDoc.data()?['name'] ?? 'Amsp';
-
-                  gl.Position? posicion;
-                  try {
-                    bool servicioActivo = await gl.Geolocator.isLocationServiceEnabled();
-                    if (servicioActivo) {
-                      gl.LocationPermission permiso = await gl.Geolocator.checkPermission();
-                      if (permiso == gl.LocationPermission.denied || permiso == gl.LocationPermission.deniedForever) {
-                        permiso = await gl.Geolocator.requestPermission();
-                      }
-                      if (permiso != gl.LocationPermission.denied && permiso != gl.LocationPermission.deniedForever) {
-                        posicion = await gl.Geolocator.getCurrentPosition(desiredAccuracy: gl.LocationAccuracy.high);
-                      }
-                    }
-                  } catch (e) {
-                    posicion = null;
-                  }
-
-                  Map<String, dynamic> reporteData = {
-                    'mensaje': descripcion,
-                    'name': nombre,
-                    'timestamp': FieldValue.serverTimestamp(),
-                    'uid': user.uid,
-                  };
-
-                  if (posicion != null) {
-                    reporteData['ubicacion'] = {
-                      'lat': posicion.latitude,
-                      'lng': posicion.longitude,
-                    };
-                  }
-
-                  await FirebaseFirestore.instance
-                      .collection('users')
-                      .doc(user.uid)
-                      .collection('reportes_historicos')
-                      .add(reporteData);
-
-                  Navigator.pop(context);
-                },
-                child: Text(
-                  'Guardar reporte',
-                  style: TextStyle(color: greenColor),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    },
-  );
 }
 
 // Mostrar modal de alerta SOS
@@ -1137,7 +815,7 @@ Widget _contactTile(BuildContext context, String id, String nombre, String numer
         children: [
           IconButton(
             icon: const Icon(Icons.edit, color: Colors.black),
-            onPressed: () => _editarContacto(context, id, nombre, numero),
+            onPressed: () => number.editarContacto(context, id, nombre, numero),
           ),
           IconButton(
             icon: const Icon(Icons.delete, color: Colors.black),
@@ -1303,7 +981,7 @@ Widget build(BuildContext context) {
               shape: BoxShape.circle,
             ),
             child: RawMaterialButton(
-              onPressed: () => _mostrarModalReporteHistorico(context),
+              onPressed: () => report.mostrarModalReporteHistorico(context),
               fillColor: orangeTrans,
               shape: const CircleBorder(),
               constraints: const BoxConstraints.tightFor(
@@ -1368,8 +1046,6 @@ Widget build(BuildContext context) {
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
 
-
-
             _bottomIcon(
   Icons.location_on,
   () async {
@@ -1378,9 +1054,6 @@ Widget build(BuildContext context) {
   },
   map.seguirUsuario ? const Color(0xFFFF6C00) : Colors.white,
 ),
-
-
-
             _bottomIcon(Icons.family_restroom, () {
               Navigator.push(
                 context,
@@ -1400,7 +1073,6 @@ Widget build(BuildContext context) {
     ),
   );
 }
-
 
 Widget _iconButton(IconData icon, VoidCallback onPressed, Color color) {
   return IconButton(
