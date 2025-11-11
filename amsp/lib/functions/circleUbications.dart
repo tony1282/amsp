@@ -112,5 +112,8 @@ void ajustarZoomInicial() async {
 
 
 
+
+
+
   
 }

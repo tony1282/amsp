@@ -37,6 +37,7 @@ class MapFunctions {
   }
 
   Future<void> centrarEnUbicacionActual() async {
+    await Future.delayed(const Duration(milliseconds: 300));
     try {
       final serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
@@ -58,14 +59,13 @@ class MapFunctions {
       // 🔹 Mostrar ubicación aproximada inmediatamente
       final lastPos = await gl.Geolocator.getLastKnownPosition();
       if (lastPos != null && mapboxMapController != null) {
-        await mapboxMapController!.easeTo(
+        await mapboxMapController!.setCamera(
           mp.CameraOptions(
             center: mp.Point(
               coordinates: mp.Position(lastPos.longitude, lastPos.latitude),
             ),
             zoom: 15.5,
           ),
-          mp.MapAnimationOptions(duration: 500),
         );
       }
 
@@ -84,11 +84,11 @@ class MapFunctions {
         );
       }
     } catch (e) {
-      print("❌ Error al centrar en ubicación: $e");
+      print(" Error al centrar en ubicación: $e");
     }
   }
 
-  /// 🚀 Escucha la ubicación en tiempo real y actualiza el mapa
+  ///  Escucha la ubicación en tiempo real y actualiza el mapa
   void iniciarSeguimientoContinuo() {
     userPositionStream?.cancel();
 
@@ -112,12 +112,12 @@ class MapFunctions {
           mp.MapAnimationOptions(duration: 500),
         );
       } catch (e) {
-        print("❌ Error en seguimiento continuo: $e");
+        print(" Error en seguimiento continuo: $e");
       }
     });
   }
 
-  /// 📍 Ajusta el zoom para mostrar todos los puntos
+  /// Ajusta el zoom para mostrar todos los puntos
 Future<void> ajustarZoomParaTodos(Map<String, mp.Point> posiciones) async {
   if (mapboxMapController == null || posiciones.isEmpty) return;
 
@@ -141,10 +141,10 @@ Future<void> ajustarZoomParaTodos(Map<String, mp.Point> posiciones) async {
 
   // Alejar dependiendo de la dispersión de puntos
   double maxDiff = latDiff > lngDiff ? latDiff : lngDiff;
-  double zoom = 16 - (maxDiff * 20); // Ajusta el multiplicador según cuánto quieras alejar
+  double zoom = 17 - (maxDiff * 200); // Ajusta el multiplicador según cuánto quieras alejar
 
   // Limitar zoom
-  if (zoom < 3) zoom = 3;  // mínimo más alejado
+  if (zoom < 8) zoom = 8;  // mínimo más alejado
   if (zoom > 16) zoom = 16; // máximo cercano
 
   await mapboxMapController!.easeTo(
@@ -154,6 +154,28 @@ Future<void> ajustarZoomParaTodos(Map<String, mp.Point> posiciones) async {
     ),
     mp.MapAnimationOptions(duration: 1000),
   );
+}
+
+
+Future<void> centrarInmediato(mp.MapboxMap? controller) async {
+  try {
+    final pos = await gl.Geolocator.getLastKnownPosition();
+    if (pos != null && controller != null) {
+      await controller.setCamera(
+        mp.CameraOptions(
+          center: mp.Point(
+            coordinates: mp.Position(pos.longitude, pos.latitude),
+          ),
+          zoom: 16,
+        ),
+      );
+      print("📍 Centrado inmediato al usuario");
+    } else {
+      print("⚠️ No se encontró posición para centrar inmediato");
+    }
+  } catch (e) {
+    print("❌ Error en centrado inmediato: $e");
+  }
 }
 
 }

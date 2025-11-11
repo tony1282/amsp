@@ -16,12 +16,10 @@ import 'package:amsp/modals/modalSmart.dart';
 import 'package:amsp/pages/crear_circulo_screen.dart';
 import 'package:amsp/services/location_service.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart' as gl;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
-import 'package:url_launcher/url_launcher.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -74,6 +72,8 @@ class _HomePageState extends State<HomePage> {
   final calls = Callfunctions();
   final number = PhoneNumberFunctions();
   final report = HistoricalReport();
+  final Completer<mp.MapboxMap> _mapReady = Completer<mp.MapboxMap>();
+
   // 
 
   StreamSubscription? userPositionStream;  
@@ -87,7 +87,7 @@ class _HomePageState extends State<HomePage> {
   mp.Point? _ultimaUbicacionPendiente;
 
 
-  Map<String, DateTime> _ultimoUpdateMarcador = {};
+
   Map<String, StreamSubscription<DocumentSnapshot>> miembrosListeners = {};
   Map<String, mp.PointAnnotation> marcadores = {}; 
   Map<String, mp.PointAnnotation> miembrosAnnotations = {};
@@ -108,6 +108,8 @@ class _HomePageState extends State<HomePage> {
   bool _yaCargoInicial = false;
   bool _seguirUsuarioTemporal = true;
   bool _alertaActiva = false;
+  bool _debeCentrarDespuesDeCerrar = false;
+
 
   StreamSubscription? _alertasSubscription;
   StreamSubscription? _accelerometerSubscription;
@@ -623,73 +625,109 @@ Future<void> setupPositionTracking() async {
   });
 }
 
-void _onMapCreated(mp.MapboxMap controller) async {
+void onMapCreated(mp.MapboxMap controller) async {
   mapboxMapController = controller;
-  await aplicarUbicacionPendiente();
 
+  // Completa el mapa cuando esté listo
+  _mapReady.complete(controller);
+
+  // Configurar la ubicación primero para acelerar la carga
   await controller.location.updateSettings(
     mp.LocationComponentSettings(enabled: true),
   );
 
-  pointAnnotationManager = await controller.annotations.createPointAnnotationManager();
-  circleAnnotationManager = await controller.annotations.createCircleAnnotationManager();
+  // Crear los administradores de anotaciones en paralelo
+  await Future.wait([
+    controller.annotations.createPointAnnotationManager().then((m) => pointAnnotationManager = m),
+    controller.annotations.createCircleAnnotationManager().then((m) => circleAnnotationManager = m),
+    aplicarUbicacionPendiente(),
+  ]);
 
   // Inyecciones de dependencias
-  circleUbi.mapboxMapController = mapboxMapController;
-  circleUbi.pointAnnotationManager = pointAnnotationManager;
-  circleUbi.circleAnnotationManager = circleAnnotationManager;
+  circleUbi
+    ..mapboxMapController = mapboxMapController
+    ..pointAnnotationManager = pointAnnotationManager
+    ..circleAnnotationManager = circleAnnotationManager;
 
-  // conectar el mapa interno de circleUbi con el controlador real
-  circleUbi.map.mapboxMapController = mapboxMapController; 
-  circleUbi.map.pointAnnotationManager = pointAnnotationManager; 
+  circleUbi.map
+    ..mapboxMapController = mapboxMapController
+    ..pointAnnotationManager = pointAnnotationManager;
 
-  circleUbi.mark.pointAnnotationManager = pointAnnotationManager;
-  circleUbi.mark.mapboxMapController = mapboxMapController;
+  circleUbi.mark
+    ..pointAnnotationManager = pointAnnotationManager
+    ..mapboxMapController = mapboxMapController;
 
-  iot.modalI.mapboxMapController = mapboxMapController;
-  iot.modalI.pointAnnotationManager = pointAnnotationManager;
-  iot.modalI.escucharAlertasIoT(context);
+  iot.modalI
+    ..mapboxMapController = mapboxMapController
+    ..pointAnnotationManager = pointAnnotationManager
+    ..escucharAlertasIoT(context);
 
-  smart.modalS.mapboxMapController = mapboxMapController;
-  smart.modalS.pointAnnotationManager = pointAnnotationManager;
+  smart.modalS
+    ..mapboxMapController = mapboxMapController
+    ..pointAnnotationManager = pointAnnotationManager;
   smart.escucharAlertasSmart(context);
 
-  // Centrar automáticamente y activar seguimiento si _seguirUsuario es true
+  // Activar seguimiento si está habilitado
   if (map.seguirUsuario) {
-    await map.toggleSeguirUsuario(); // Esto centra la cámara y activa seguimiento
-    setState(() {}); // 🔁 actualiza color del botón
+    await map.toggleSeguirUsuario();
+    setState(() {});
   }
 
-  // Escuchar ubicaciones del círculo si se seleccionó
+  // Si hay un círculo seleccionado, escuchar sus ubicaciones
   if (circuloSeleccionadoId != null && circuloSeleccionadoId!.isNotEmpty) {
     await circleUbi.escucharUbicacionesDelCirculo(circuloSeleccionadoId!);
 
-    // Ajustar zoom automáticamente para mostrar todos los miembros
-    Future.delayed(const Duration(milliseconds: 500), () async {
+    // Ajustar zoom con menor delay para mejorar respuesta
+    Future.delayed(const Duration(milliseconds: 300), () async {
       if (circleUbi.todasPosiciones.isNotEmpty) {
         await map.ajustarZoomParaTodos(circleUbi.todasPosiciones);
       }
     });
   } else {
-    print('No se ha seleccionado ningún círculo.');
+    // Si no hay círculo, centrar rápidamente al usuario
+    Future.delayed(const Duration(milliseconds: 300), () async {
+      await map.centrarEnUbicacionActual();
+    });
+  }
+
+  // Centrar al usuario después de cerrar el círculo
+  if (_debeCentrarDespuesDeCerrar) {
+    print("Se detectó cierre de círculo, centrando al usuario...");
+    _debeCentrarDespuesDeCerrar = false;
+
+    try {
+      await _mapReady.future;
+      await map.centrarEnUbicacionActual();
+      print("Centrado tras cierre de círculo (mapa listo).");
+    } catch (e) {
+      print("Error al centrar tras cierre: $e");
+    }
   }
 }
 
+
+
 Future<void> cerrarCirculoSeleccionado() async {
+  await map.centrarInmediato(mapboxMapController);
+
+  Future.delayed(const Duration(seconds: 3), () async {
+  await map.centrarEnUbicacionActual(); // este ya usa Geolocator con alta precisión
+});
+
   if (circuloSeleccionadoId == null) {
-    print("No hay círculo seleccionado actualmente.");
+    print("⚠️ No hay círculo seleccionado actualmente.");
     return;
   }
 
-  print("Cerrando círculo: $circuloSeleccionadoNombre");
+  print("🌀 Cerrando círculo: $circuloSeleccionadoNombre");
 
-  // Cancelar escuchas activas de los miembros
+  // 🔸 Cancelar escuchas activas de los miembros
   for (var sub in circleUbi.miembrosListeners.values) {
     await sub.cancel();
   }
   circleUbi.miembrosListeners.clear();
 
-  // Borrar los marcadores de miembros del mapa
+  // 🔸 Borrar los marcadores del mapa
   if (circleUbi.pointAnnotationManager != null) {
     for (var marker in circleUbi.mark.miembrosAnnotations.values) {
       await circleUbi.pointAnnotationManager!.delete(marker);
@@ -699,23 +737,28 @@ Future<void> cerrarCirculoSeleccionado() async {
     }
   }
 
-  // Limpiar colecciones en memoria
+  // 🔸 Limpiar datos en memoria
   circleUbi.todasPosiciones.clear();
   circleUbi.mark.miembrosAnnotations.clear();
   circleUbi.mark.miembrosTextAnnotations.clear();
 
-  // Restaurar seguimiento y centrar en usuario
+  // 🔸 Restaurar seguimiento del usuario
   map.seguirUsuario = true;
-  await map.centrarEnUbicacionActual();
 
-  // Limpiar selección actual
+  // ✅ Solo marcamos la bandera
+  _debeCentrarDespuesDeCerrar = true;
+
+  // 🔸 Limpiar selección actual
   setState(() {
     circuloSeleccionadoId = null;
     circuloSeleccionadoNombre = null;
   });
 
-  print(" Círculo cerrado y mapa centrado en el usuario.");
+  print("✅ Círculo cerrado correctamente. Se centrará cuando el mapa esté listo.");
 }
+
+
+
 
 Future<void> aplicarUbicacionPendiente() async {
   if (_ultimaUbicacionPendiente != null && mapboxMapController != null) {
@@ -892,7 +935,7 @@ Widget build(BuildContext context) {
       children: [
         SizedBox.expand( 
           child: mp.MapWidget(
-            onMapCreated: _onMapCreated,
+            onMapCreated: onMapCreated,
             styleUri: 'mapbox://styles/mapbox/streets-v12',
           ),
         ),
