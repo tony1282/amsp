@@ -1,11 +1,8 @@
 import 'dart:async';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/material.dart';
+
 import 'package:flutter/services.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
-import 'package:amsp/pages/zona_riesgo_screen.dart';
-import 'package:audioplayers/audioplayers.dart';
-import 'package:firebase_database/firebase_database.dart';
+
 
 class riskZones { 
 
@@ -17,36 +14,11 @@ class riskZones {
 
   bool esCreadorFamilia = false;
   bool cargandoUsuario = true;
-  bool _mostrarNotificacion = true;
-  bool _mostrarModalAlerta = false;
-  bool _dialogoAbierto = false;
-  bool _primerZoomUsuario = true;
-  bool _zoomAjustadoParaCirculo = false;
-  bool _yaCargoInicial = false;
-  bool _seguirUsuarioTemporal = true;
-  bool _seguirUsuario = true;
-  bool _alertaActiva = false;
 
-  final DatabaseReference _ref = FirebaseDatabase.instance.ref();
-  final AudioPlayer _player = AudioPlayer();
 
-  Set<String> _alertasProcesadas = {};
   String? circuloSeleccionadoId;
   String? circuloSeleccionadoNombre;
-  String? _ultimoMensajeIot;
-  String? _ultimoMensajeMostrado;
-  String? _mensajeAlerta;
-  List<String> codigosRiesgo = [];
-  final Set<String> _alertasMostradasIds = {};
-  final Set<String> _alertasMostradas = {};
 
-  Timestamp? _ultimoTimestampVisto; 
-  DateTime _ultimaSacudida = DateTime.now().subtract(const Duration(seconds: 10));
-  DateTime _sessionStart = DateTime.now();
-
-  final Map<String, bool> _initialCircleFetched = {};
-
-  DateTime? _ultimoTimestampAlertasIoT;
 
   Future<void> refrescarZonasTlaxcala(mp.MapboxMap mapboxMap) async {
     await mapboxMap.loadStyleURI('mapbox://styles/mapbox/streets-v12'); 

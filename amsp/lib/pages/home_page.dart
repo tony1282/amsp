@@ -73,8 +73,8 @@ class _HomePageState extends State<HomePage> {
   final number = PhoneNumberFunctions();
   final report = HistoricalReport();
   final Completer<mp.MapboxMap> _mapReady = Completer<mp.MapboxMap>();
-
-  // 
+  final zones = riskZones();
+  //
 
   StreamSubscription? userPositionStream;  
   mp.MapboxMap? mapboxMapController;
@@ -85,6 +85,8 @@ class _HomePageState extends State<HomePage> {
   mp.CircleAnnotation? usuarioCircleAnnotation;
   mp.Point? ultimaPosicion;
   mp.Point? _ultimaUbicacionPendiente;
+
+  
 
 
 
@@ -109,6 +111,8 @@ class _HomePageState extends State<HomePage> {
   bool _seguirUsuarioTemporal = true;
   bool _alertaActiva = false;
   bool _debeCentrarDespuesDeCerrar = false;
+  
+
 
 
   StreamSubscription? _alertasSubscription;
@@ -148,6 +152,7 @@ void initState() {
   
   super.initState();
   map.centrarEnUbicacionActual();
+  map.seguirUsuario = true;
   setupPositionTracking();
 
   print("initState ejecutado");
@@ -627,83 +632,71 @@ Future<void> setupPositionTracking() async {
 
 void onMapCreated(mp.MapboxMap controller) async {
   mapboxMapController = controller;
+  await riskZones().mostrarGeoJsonTlaxcala(controller);
 
-  // Completa el mapa cuando esté listo
-  _mapReady.complete(controller);
+  if (!_mapReady.isCompleted) {
+    _mapReady.complete(controller);
+  }
 
-  // Configurar la ubicación primero para acelerar la carga
   await controller.location.updateSettings(
     mp.LocationComponentSettings(enabled: true),
   );
 
-  // Crear los administradores de anotaciones en paralelo
-  await Future.wait([
-    controller.annotations.createPointAnnotationManager().then((m) => pointAnnotationManager = m),
-    controller.annotations.createCircleAnnotationManager().then((m) => circleAnnotationManager = m),
-    aplicarUbicacionPendiente(),
-  ]);
+  pointAnnotationManager = await controller.annotations.createPointAnnotationManager();
+  circleAnnotationManager = await controller.annotations.createCircleAnnotationManager();
 
-  // Inyecciones de dependencias
-  circleUbi
-    ..mapboxMapController = mapboxMapController
-    ..pointAnnotationManager = pointAnnotationManager
-    ..circleAnnotationManager = circleAnnotationManager;
+  circleUbi.mapboxMapController = controller;
+  circleUbi.pointAnnotationManager = pointAnnotationManager;
+  circleUbi.circleAnnotationManager = circleAnnotationManager;
 
-  circleUbi.map
-    ..mapboxMapController = mapboxMapController
-    ..pointAnnotationManager = pointAnnotationManager;
+  circleUbi.mark.pointAnnotationManager = pointAnnotationManager;
+  circleUbi.mark.mapboxMapController = controller;
 
-  circleUbi.mark
-    ..pointAnnotationManager = pointAnnotationManager
-    ..mapboxMapController = mapboxMapController;
+  circleUbi.map.mapboxMapController = controller;
+  circleUbi.map.pointAnnotationManager = pointAnnotationManager;
 
-  iot.modalI
-    ..mapboxMapController = mapboxMapController
-    ..pointAnnotationManager = pointAnnotationManager
-    ..escucharAlertasIoT(context);
+  iot.modalI.mapboxMapController = controller;
+  iot.modalI.pointAnnotationManager = pointAnnotationManager;
+  iot.modalI.escucharAlertasIoT(context);
 
-  smart.modalS
-    ..mapboxMapController = mapboxMapController
-    ..pointAnnotationManager = pointAnnotationManager;
+  smart.modalS.mapboxMapController = controller;
+  smart.modalS.pointAnnotationManager = pointAnnotationManager;
   smart.escucharAlertasSmart(context);
 
-  // Activar seguimiento si está habilitado
-  if (map.seguirUsuario) {
-    await map.toggleSeguirUsuario();
-    setState(() {});
-  }
+  // Centrar y seguir al usuario una sola vez
+ Future.delayed(const Duration(seconds: 2), () async {
+  print("⌛ Esperando ubicación antes del centrado inicial...");
+  await map.centrarEnUbicacionActual();
+  map.iniciarSeguimientoContinuo();
+});
 
-  // Si hay un círculo seleccionado, escuchar sus ubicaciones
+
+  // Si hay círculo seleccionado, escuchar ubicaciones
   if (circuloSeleccionadoId != null && circuloSeleccionadoId!.isNotEmpty) {
     await circleUbi.escucharUbicacionesDelCirculo(circuloSeleccionadoId!);
-
-    // Ajustar zoom con menor delay para mejorar respuesta
-    Future.delayed(const Duration(milliseconds: 300), () async {
-      if (circleUbi.todasPosiciones.isNotEmpty) {
-        await map.ajustarZoomParaTodos(circleUbi.todasPosiciones);
-      }
-    });
-  } else {
-    // Si no hay círculo, centrar rápidamente al usuario
-    Future.delayed(const Duration(milliseconds: 300), () async {
-      await map.centrarEnUbicacionActual();
+    Future.delayed(const Duration(milliseconds: 400), () async {
+      await circleUbi.reajustarZoomSiNecesario();
     });
   }
 
-  // Centrar al usuario después de cerrar el círculo
+  // Centrar tras cierre de círculo
   if (_debeCentrarDespuesDeCerrar) {
-    print("Se detectó cierre de círculo, centrando al usuario...");
+    print(" Cierre de círculo detectado, centrando al usuario...");
     _debeCentrarDespuesDeCerrar = false;
-
     try {
-      await _mapReady.future;
+      final mp.MapboxMap readyMap = await _mapReady.future;
+      await Future.delayed(const Duration(milliseconds: 900));
       await map.centrarEnUbicacionActual();
-      print("Centrado tras cierre de círculo (mapa listo).");
+      print(" Centrado tras cierre de círculo.");
     } catch (e) {
-      print("Error al centrar tras cierre: $e");
+      print(" Error al centrar tras cierre: $e");
     }
   }
+
+  print(" Mapa completamente inicializado y listo.");
 }
+
+
 
 
 
@@ -715,19 +708,19 @@ Future<void> cerrarCirculoSeleccionado() async {
 });
 
   if (circuloSeleccionadoId == null) {
-    print("⚠️ No hay círculo seleccionado actualmente.");
+    print(" No hay círculo seleccionado actualmente.");
     return;
   }
 
-  print("🌀 Cerrando círculo: $circuloSeleccionadoNombre");
+  print(" Cerrando círculo: $circuloSeleccionadoNombre");
 
-  // 🔸 Cancelar escuchas activas de los miembros
+  // Cancelar escuchas activas de los miembros
   for (var sub in circleUbi.miembrosListeners.values) {
     await sub.cancel();
   }
   circleUbi.miembrosListeners.clear();
 
-  // 🔸 Borrar los marcadores del mapa
+  // Borrar los marcadores del mapa
   if (circleUbi.pointAnnotationManager != null) {
     for (var marker in circleUbi.mark.miembrosAnnotations.values) {
       await circleUbi.pointAnnotationManager!.delete(marker);
@@ -737,18 +730,18 @@ Future<void> cerrarCirculoSeleccionado() async {
     }
   }
 
-  // 🔸 Limpiar datos en memoria
+  // Limpiar datos en memoria
   circleUbi.todasPosiciones.clear();
   circleUbi.mark.miembrosAnnotations.clear();
   circleUbi.mark.miembrosTextAnnotations.clear();
 
-  // 🔸 Restaurar seguimiento del usuario
+  // Restaurar seguimiento del usuario
   map.seguirUsuario = true;
 
-  // ✅ Solo marcamos la bandera
+  // Solo marcamos la bandera
   _debeCentrarDespuesDeCerrar = true;
 
-  // 🔸 Limpiar selección actual
+  // Limpiar selección actual
   setState(() {
     circuloSeleccionadoId = null;
     circuloSeleccionadoNombre = null;

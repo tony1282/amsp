@@ -37,56 +37,62 @@ class MapFunctions {
   }
 
   Future<void> centrarEnUbicacionActual() async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    try {
-      final serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        print("⚠️ Servicio de ubicación desactivado");
-        return;
-      }
-
-      var permission = await gl.Geolocator.checkPermission();
-      if (permission == gl.LocationPermission.denied) {
-        permission = await gl.Geolocator.requestPermission();
-      }
-
-      if (permission == gl.LocationPermission.denied ||
-          permission == gl.LocationPermission.deniedForever) {
-        print("🚫 Permiso de ubicación denegado");
-        return;
-      }
-
-      // 🔹 Mostrar ubicación aproximada inmediatamente
-      final lastPos = await gl.Geolocator.getLastKnownPosition();
-      if (lastPos != null && mapboxMapController != null) {
-        await mapboxMapController!.setCamera(
-          mp.CameraOptions(
-            center: mp.Point(
-              coordinates: mp.Position(lastPos.longitude, lastPos.latitude),
-            ),
-            zoom: 15.5,
-          ),
-        );
-      }
-
-      // 🔹 Obtener la ubicación exacta
-      final pos = await gl.Geolocator.getCurrentPosition(
-        desiredAccuracy: gl.LocationAccuracy.high,
-      );
-      ultimaUbicacion = mp.Point(
-        coordinates: mp.Position(pos.longitude, pos.latitude),
-      );
-
-      if (mapboxMapController != null) {
-        await mapboxMapController!.easeTo(
-          mp.CameraOptions(center: ultimaUbicacion, zoom: 16),
-          mp.MapAnimationOptions(duration: 500),
-        );
-      }
-    } catch (e) {
-      print(" Error al centrar en ubicación: $e");
+  print("📍 Intentando centrar en ubicación actual...");
+  try {
+    final serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      print("⚠️ Servicio de ubicación desactivado");
+      return;
     }
+
+    var permission = await gl.Geolocator.checkPermission();
+    if (permission == gl.LocationPermission.denied) {
+      permission = await gl.Geolocator.requestPermission();
+    }
+
+    if (permission == gl.LocationPermission.denied ||
+        permission == gl.LocationPermission.deniedForever) {
+      print("🚫 Permiso de ubicación denegado");
+      return;
+    }
+
+    // 🔹 Mostrar ubicación aproximada inmediatamente
+    final lastPos = await gl.Geolocator.getLastKnownPosition();
+    if (lastPos != null && mapboxMapController != null) {
+      await mapboxMapController!.setCamera(
+        mp.CameraOptions(
+          center: mp.Point(
+            coordinates: mp.Position(lastPos.longitude, lastPos.latitude),
+          ),
+          zoom: 16, // 🔸 Zoom inmediato
+        ),
+      );
+      print("📍 Centrado rápido con última posición conocida.");
+    }
+
+    // 🔹 Obtener ubicación exacta (puede tardar un poco)
+    final pos = await gl.Geolocator.getCurrentPosition(
+      desiredAccuracy: gl.LocationAccuracy.high,
+    );
+
+    ultimaUbicacion = mp.Point(
+      coordinates: mp.Position(pos.longitude, pos.latitude),
+    );
+
+    if (mapboxMapController != null) {
+      await mapboxMapController!.easeTo(
+        mp.CameraOptions(center: ultimaUbicacion), // 🔹 ya sin cambiar zoom
+        mp.MapAnimationOptions(duration: 600),
+      );
+      print("✅ Ubicación obtenida: ${pos.latitude}, ${pos.longitude}");
+      print("📍 Cámara centrada correctamente en el usuario.");
+    }
+  } catch (e) {
+    print("❌ Error al centrar en ubicación: $e");
   }
+}
+
+
 
   ///  Escucha la ubicación en tiempo real y actualiza el mapa
   void iniciarSeguimientoContinuo() {

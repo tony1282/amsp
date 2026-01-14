@@ -8,112 +8,123 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 class CircleUbications {
   mp.MapboxMap? mapboxMapController;
 
-  mp.PointAnnotation? usuarioAnnotation;
-  mp.PointAnnotation? usuarioTextoAnnotation;
   mp.PointAnnotationManager? pointAnnotationManager;
   mp.CircleAnnotationManager? circleAnnotationManager;
+
+  mp.PointAnnotation? usuarioAnnotation;
+  mp.PointAnnotation? usuarioTextoAnnotation;
   mp.CircleAnnotation? usuarioCircleAnnotation;
 
   mp.Point? ultimaPosicion;
 
-  Map<String, StreamSubscription<DocumentSnapshot>> miembrosListeners = {};
-  Map<String, mp.PointAnnotation> marcadores = {};
-  Map<String, mp.PointAnnotation> miembrosAnnotations = {};
-  Map<String, mp.PointAnnotation> miembrosTextAnnotations = {};
-  Map<String, mp.Point> todasPosiciones = {};
-
-  bool _zoomAjustadoParaCirculo = false;
-  bool _alertaActiva = false;
-
   final mark = Markers();
   final map = MapFunctions();
 
-  
+  final Map<String, StreamSubscription<DocumentSnapshot>> miembrosListeners = {};
+  final Map<String, mp.PointAnnotation> marcadores = {};
+  final Map<String, mp.Point> todasPosiciones = {};
 
+  bool _zoomAjustadoParaCirculo = false;
+  bool _escuchando = false;
+
+  /// 🔹 Limpia todas las suscripciones activas y marcadores previos
+  Future<void> limpiarEscuchasYMarcadores() async {
+    for (final sub in miembrosListeners.values) {
+      await sub.cancel();
+    }
+    miembrosListeners.clear();
+    marcadores.clear();
+    todasPosiciones.clear();
+    _zoomAjustadoParaCirculo = false;
+    await mark.limpiarEscuchasYMarcadores();
+    print("🧹 Limpieza completa de escuchas y marcadores.");
+  }
+
+  /// 🔹 Escucha las ubicaciones de todos los miembros del círculo en tiempo real
   Future<void> escucharUbicacionesDelCirculo(String circleId) async {
-  await mark.limpiarEscuchasYMarcadores();
-  print("Escuchando ubicaciones para círculo: $circleId");
+    if (_escuchando) {
+      await limpiarEscuchasYMarcadores();
+    }
+    _escuchando = true;
 
-  final circleDoc = await FirebaseFirestore.instance
-      .collection('circulos')
-      .doc(circleId)
-      .get();
+    print("📡 Escuchando ubicaciones para círculo: $circleId");
 
-  if (!circleDoc.exists) return;
+    final circleDoc = await FirebaseFirestore.instance
+        .collection('circulos')
+        .doc(circleId)
+        .get();
 
-  final miembros = circleDoc.data()?['miembros'] as List<dynamic>? ?? [];
-  final user = FirebaseAuth.instance.currentUser;
-
-  for (final member in miembros) {
-    String uid;
-    String name = 'Sin nombre';
-
-    if (member is String) {
-      uid = member;
-    } else if (member is Map<String, dynamic>) {
-      uid = member['uid'];
-      name = member['name'] ?? 'Sin nombre';
-    } else {
-      continue;
+    if (!circleDoc.exists) {
+      print("❌ El círculo no existe o fue eliminado.");
+      return;
     }
 
-    if (user != null && uid == user.uid) continue;
+    final miembros = circleDoc.data()?['miembros'] as List<dynamic>? ?? [];
+    final user = FirebaseAuth.instance.currentUser;
 
-    final sub = FirebaseFirestore.instance
-        .collection('ubicaciones')
-        .doc(uid)
-        .snapshots()
-        .listen((snapshot) async {
-      if (!snapshot.exists) return;
+    for (final member in miembros) {
+      String uid;
+      String name = 'Sin nombre';
 
-      final data = snapshot.data();
-      final lat = (data?['lat'] ?? data?['latitude'])?.toDouble();
-      final lng = (data?['lng'] ?? data?['longitude'])?.toDouble();
-      if (lat == null || lng == null) return;
-
-      final puntoNuevo = mp.Point(coordinates: mp.Position(lng, lat));
-
-      mark.moverMarcadorFluido(uid, puntoNuevo, name);
-
-      // 🔹 Guardamos la posición siempre
-      todasPosiciones[uid] = puntoNuevo;
-      ajustarZoomInicial();
-
-      // 🔹 Ajustamos el zoom solo una vez
-      if (!_zoomAjustadoParaCirculo && mapboxMapController != null) {
-        _zoomAjustadoParaCirculo = true;
-
-        // 🔹 Desactivar seguimiento temporalmente si estaba activo
-        final seguirAnterior = map.seguirUsuario;
-        map.seguirUsuario = false;
-
-        await Future.delayed(const Duration(milliseconds: 300)); // esperar que se agreguen anotaciones
-        await map.ajustarZoomParaTodos(todasPosiciones);
-
-        map.seguirUsuario = seguirAnterior;
+      if (member is String) {
+        uid = member;
+      } else if (member is Map<String, dynamic>) {
+        uid = member['uid'] ?? '';
+        name = member['name'] ?? 'Sin nombre';
+      } else {
+        continue;
       }
-    });
 
-    miembrosListeners[uid] = sub;
+      if (uid.isEmpty || (user != null && uid == user.uid)) continue;
+
+      // 🔹 Suscripción a los cambios de ubicación
+      final sub = FirebaseFirestore.instance
+          .collection('ubicaciones')
+          .doc(uid)
+          .snapshots()
+          .listen((snapshot) async {
+        if (!snapshot.exists) return;
+
+        final data = snapshot.data();
+        final lat = (data?['lat'] ?? data?['latitude'])?.toDouble();
+        final lng = (data?['lng'] ?? data?['longitude'])?.toDouble();
+        if (lat == null || lng == null) return;
+
+        final puntoNuevo = mp.Point(coordinates: mp.Position(lng, lat));
+
+        // Mover o crear marcador
+        mark.moverMarcadorFluido(uid, puntoNuevo, name);
+
+        // Guardar posición
+        todasPosiciones[uid] = puntoNuevo;
+
+        // 🔹 Solo ajustar zoom una vez al principio
+        if (!_zoomAjustadoParaCirculo &&
+            mapboxMapController != null &&
+            todasPosiciones.length >= 2) {
+          _zoomAjustadoParaCirculo = true;
+          await Future.delayed(const Duration(milliseconds: 200));
+          await map.ajustarZoomParaTodos(todasPosiciones);
+        }
+      });
+
+      miembrosListeners[uid] = sub;
+    }
   }
-}
 
-void ajustarZoomInicial() async {
-  if (_zoomAjustadoParaCirculo) return; // solo una vez
-  if (todasPosiciones.isEmpty || mapboxMapController == null) return;
+  /// 🔹 Reajusta el zoom al mostrar nuevamente el círculo
+  Future<void> reajustarZoomSiNecesario() async {
+    if (mapboxMapController == null || todasPosiciones.isEmpty) return;
+    await map.ajustarZoomParaTodos(todasPosiciones);
+  }
 
-  _zoomAjustadoParaCirculo = true;
-
-  // Esperar un momento para asegurarnos que se agregaron las anotaciones
-  await Future.delayed(const Duration(milliseconds: 300));
-
-  await map.ajustarZoomParaTodos(todasPosiciones);
-}
-
-
-
-
-
-
-  
+  /// 🔹 Detiene escuchas activas (al cerrar o cambiar de círculo)
+  Future<void> detenerEscuchas() async {
+    for (final sub in miembrosListeners.values) {
+      await sub.cancel();
+    }
+    miembrosListeners.clear();
+    _escuchando = false;
+    print("🛑 Escuchas detenidas correctamente.");
+  }
 }
