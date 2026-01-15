@@ -23,25 +23,24 @@ class MapFunctions {
     seguirUsuario = !seguirUsuario;
 
     if (seguirUsuario) {
-      print("🛰️ Seguimiento activado");
+      print(" Seguimiento activado");
 
       // 🔹 Centrar el mapa inmediatamente usando la última ubicación conocida
       await centrarEnUbicacionActual();
 
-      // 🔹 Iniciar seguimiento continuo
       iniciarSeguimientoContinuo();
     } else {
-      print("🛰️ Seguimiento desactivado");
+      print(" Seguimiento desactivado");
       userPositionStream?.cancel();
     }
   }
 
   Future<void> centrarEnUbicacionActual() async {
-  print("📍 Intentando centrar en ubicación actual...");
+  print(" Intentando centrar en ubicación actual...");
   try {
     final serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      print("⚠️ Servicio de ubicación desactivado");
+      print(" Servicio de ubicación desactivado");
       return;
     }
 
@@ -52,11 +51,10 @@ class MapFunctions {
 
     if (permission == gl.LocationPermission.denied ||
         permission == gl.LocationPermission.deniedForever) {
-      print("🚫 Permiso de ubicación denegado");
+      print(" Permiso de ubicación denegado");
       return;
     }
 
-    // 🔹 Mostrar ubicación aproximada inmediatamente
     final lastPos = await gl.Geolocator.getLastKnownPosition();
     if (lastPos != null && mapboxMapController != null) {
       await mapboxMapController!.setCamera(
@@ -64,13 +62,12 @@ class MapFunctions {
           center: mp.Point(
             coordinates: mp.Position(lastPos.longitude, lastPos.latitude),
           ),
-          zoom: 16, // 🔸 Zoom inmediato
+          zoom: 16, // Zoom inmediato
         ),
       );
-      print("📍 Centrado rápido con última posición conocida.");
+      print("Centrado rápido con última posición conocida.");
     }
 
-    // 🔹 Obtener ubicación exacta (puede tardar un poco)
     final pos = await gl.Geolocator.getCurrentPosition(
       desiredAccuracy: gl.LocationAccuracy.high,
     );
@@ -81,14 +78,14 @@ class MapFunctions {
 
     if (mapboxMapController != null) {
       await mapboxMapController!.easeTo(
-        mp.CameraOptions(center: ultimaUbicacion), // 🔹 ya sin cambiar zoom
+        mp.CameraOptions(center: ultimaUbicacion), 
         mp.MapAnimationOptions(duration: 600),
       );
-      print("✅ Ubicación obtenida: ${pos.latitude}, ${pos.longitude}");
-      print("📍 Cámara centrada correctamente en el usuario.");
+      print(" Ubicación obtenida: ${pos.latitude}, ${pos.longitude}");
+      print("Cámara centrada correctamente en el usuario.");
     }
   } catch (e) {
-    print("❌ Error al centrar en ubicación: $e");
+    print(" Error al centrar en ubicación: $e");
   }
 }
 
@@ -175,12 +172,12 @@ Future<void> centrarInmediato(mp.MapboxMap? controller) async {
           zoom: 16,
         ),
       );
-      print("📍 Centrado inmediato al usuario");
+      print(" Centrado inmediato al usuario");
     } else {
-      print("⚠️ No se encontró posición para centrar inmediato");
+      print(" No se encontró posición para centrar inmediato");
     }
   } catch (e) {
-    print("❌ Error en centrado inmediato: $e");
+    print(" Error en centrado inmediato: $e");
   }
 }
 

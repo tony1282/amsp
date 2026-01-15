@@ -145,7 +145,7 @@ class MapAlerts {
         final alertaConCircleId = Map<String, dynamic>.from(data);
         alertaConCircleId['circleId'] = circleIdParaMostrar;
 
-        // ⚡ Agregar alerta y llamar callback a HomePage
+        // Agregar alerta y llamar callback a HomePage
         agregarAlerta(alertaConCircleId, callback);
       }
     });

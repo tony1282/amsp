@@ -16,6 +16,7 @@ import 'package:amsp/modals/modalSmart.dart';
 import 'package:amsp/pages/crear_circulo_screen.dart';
 import 'package:amsp/services/location_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart' as gl;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -308,18 +309,13 @@ Future<void> _mostrarModalSeleccionCirculo() async {
                               if (mapboxMapController != null) {
                                 await circleUbi.escucharUbicacionesDelCirculo(doc.id);
 
-                                Future.delayed(const Duration(milliseconds: 800), () async {
-                                  if (circleUbi.todasPosiciones.isNotEmpty) {
-                                    await map.ajustarZoomParaTodos(circleUbi.todasPosiciones);
-                                  } else {
-                                    Timer.periodic(const Duration(milliseconds: 300), (timer) async {
-                                      if (circleUbi.todasPosiciones.isNotEmpty) {
-                                        timer.cancel();
-                                        await map.ajustarZoomParaTodos(circleUbi.todasPosiciones);
-                                      }
-                                    });
-                                  }
-                                });
+                                // 🔹 Espera activa hasta que haya posiciones
+                                while (circleUbi.todasPosiciones.isEmpty) {
+                                  await Future.delayed(const Duration(milliseconds: 200));
+                                }
+
+                                // 🔹 Ajustar zoom ahora que todas las posiciones están listas
+                                await map.ajustarZoomParaTodos(circleUbi.todasPosiciones);
                               }
                             },
                           ),
@@ -351,6 +347,7 @@ Future<void> _mostrarModalSeleccionCirculo() async {
 }
 
 
+
 void procesarAlertas(BuildContext context) async {
   final alerta = alerts.obtenerSiguienteAlerta();
   if (alerta == null || alerts.dialogoAbierto) return;
@@ -368,58 +365,165 @@ void procesarAlertas(BuildContext context) async {
   String telefonoEmisor = '';
   if (emisorId != null) {
     try {
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(emisorId).get();
+      final userDoc =
+          await FirebaseFirestore.instance.collection('users').doc(emisorId).get();
       final dataUser = userDoc.data();
       if (dataUser != null) telefonoEmisor = (dataUser['phone'] ?? '') as String;
     } catch (_) {}
   }
 
+  final ubicacion = alerta['ubicacion'] as Map<String, dynamic>?;
+  if (ubicacion != null) {
+    final lat = (ubicacion['lat'] as num?)?.toDouble();
+    final lng = (ubicacion['lng'] as num?)?.toDouble();
+    if (lat != null && lng != null && mapboxMapController != null) {
+      // Inicializar PointAnnotationManager si no existe
+      if (alerts.pointAnnotationManager == null) {
+        alerts.pointAnnotationManager =
+            await mapboxMapController!.annotations.createPointAnnotationManager();
+      }
+
+      // Mover cámara a la ubicación de la alerta
+      await mapboxMapController!.flyTo(
+        mp.CameraOptions(
+          center: mp.Point(coordinates: mp.Position(lng, lat)),
+          zoom: 15.0,
+        ),
+        mp.MapAnimationOptions(duration: 1000),
+      );
+
+      // Agregar marcador con imagen
+      final idAlerta = "$lat-$lng";
+      if (!alerts.alertasAnnotations.containsKey(idAlerta)) {
+        final bytes = await rootBundle.load("assets/alert.png");
+        final imageData = bytes.buffer.asUint8List();
+
+        final annotation = await alerts.pointAnnotationManager!.create(
+          mp.PointAnnotationOptions(
+            geometry: mp.Point(coordinates: mp.Position(lng, lat)),
+            image: imageData,
+            iconSize: 0.35,
+            iconOffset: [0, -80],
+            textField: "$mensaje",
+            textSize: 14,
+            textOffset: [0, 2.0],
+            textColor: Colors.black.value,
+            textHaloColor: Colors.white.value,
+            textHaloWidth: 2,
+          ),
+        );
+        if (annotation != null) alerts.alertasAnnotations[idAlerta] = annotation;
+      }
+    }
+  }
+
+  // ⚡ Mostrar diálogo igual que modal de smartwatch
   await showDialog(
     context: context,
     barrierDismissible: false,
-    builder: (_) => AlertDialog(
-      backgroundColor: Colors.red,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: Row(
-        children: const [
-          Icon(Icons.warning, color: Colors.white),
-          SizedBox(width: 8),
-          Text("Alerta SOS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 25)),
-        ],
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(mensaje, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
-          const Text("Protocolo de emergencia:", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-          const SizedBox(height: 6),
-          const Text(
-            "1. Llama de inmediato al usuario en riesgo.\n"
-            "2. Verifica su ubicación en el mapa.\n"
-            "3. Notifica a las autoridades si no responde.\n"
-            "4. Manten comunicación con los demás miembros del círculo.",
-            style: TextStyle(color: Colors.white, fontSize: 14),
-          ),
-        ],
-      ),
-      actions: [
-        if (telefonoEmisor.isNotEmpty)
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              calls.llamarNumero(context, telefonoEmisor);
-            },
-            style: TextButton.styleFrom(foregroundColor: Colors.red, backgroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-            child: const Text("Llamar", style: TextStyle(fontWeight: FontWeight.bold)),
-          ),
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          style: TextButton.styleFrom(foregroundColor: Colors.white, backgroundColor: Colors.red, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-          child: const Text("Cerrar", style: TextStyle(fontWeight: FontWeight.bold)),
+    builder: (_) => Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.red,
+          borderRadius: BorderRadius.circular(16),
         ),
-      ],
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: const [
+                  Icon(Icons.warning, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text(
+                    "Alerta SOS",
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 25),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text(
+                mensaje,
+                style: const TextStyle(
+                    color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              if (emisorId != null && telefonoEmisor.isNotEmpty)
+                Text(
+                  "De: $telefonoEmisor",
+                  style: const TextStyle(color: Colors.white, fontSize: 18),
+                ),
+              if (ubicacion != null)
+                Text(
+                  "Ubicación: ${ubicacion['lat'].toStringAsFixed(6)}, ${ubicacion['lng'].toStringAsFixed(6)}",
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                ),
+              const SizedBox(height: 16),
+              const Text(
+                "Protocolo:",
+                style: TextStyle(
+                    color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                "1. Llama de inmediato al usuario en riesgo.\n"
+                "2. Verifica su ubicación en el mapa.\n"
+                "3. Notifica a las autoridades si no responde.\n"
+                "4. Manten comunicación con los demás miembros del círculo.",
+                style: TextStyle(color: Colors.white, fontSize: 16),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  if (telefonoEmisor.isNotEmpty)
+                    TextButton(
+                      onPressed: () {
+                        _player.stop();
+                        Navigator.of(context, rootNavigator: true).pop();
+                        calls.llamarNumero(context, telefonoEmisor);
+                      },
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.red,
+                        backgroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: const Text(
+                        "Llamar",
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  const SizedBox(width: 8),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _player.stop();
+                      alerts.dialogoAbierto = false;
+                    },
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      backgroundColor: Colors.red,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: const Text(
+                      "Cerrar",
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     ),
   ).whenComplete(() async {
     alerts.dialogoAbierto = false;
@@ -427,6 +531,9 @@ void procesarAlertas(BuildContext context) async {
     procesarAlertas(context);
   });
 }
+
+
+
 
 
 void _mostrarOpcionesCirculo() {

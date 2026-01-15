@@ -55,7 +55,7 @@ class CircleUbications {
         .get();
 
     if (!circleDoc.exists) {
-      print("❌ El círculo no existe o fue eliminado.");
+      print(" El círculo no existe o fue eliminado.");
       return;
     }
 
@@ -101,7 +101,7 @@ class CircleUbications {
         // 🔹 Solo ajustar zoom una vez al principio
         if (!_zoomAjustadoParaCirculo &&
             mapboxMapController != null &&
-            todasPosiciones.length >= 2) {
+            todasPosiciones.isNotEmpty) {
           _zoomAjustadoParaCirculo = true;
           await Future.delayed(const Duration(milliseconds: 200));
           await map.ajustarZoomParaTodos(todasPosiciones);
@@ -125,6 +125,6 @@ class CircleUbications {
     }
     miembrosListeners.clear();
     _escuchando = false;
-    print("🛑 Escuchas detenidas correctamente.");
+    print("Escuchas detenidas correctamente.");
   }
 }
