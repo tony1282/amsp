@@ -1,17 +1,20 @@
-import 'package:amsp/pages/home_page.dart';
-import 'package:amsp/pages/inicio_sesion_screen.dart';
-import 'package:amsp/pages/phone_number_screen.dart';
-import 'package:amsp/pages/zona_riesgo_screen.dart';
+import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart' as gl;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
-import 'package:amsp/services/location_service.dart';
+import 'firebase_options.dart';
+
+// NUEVOS IMPORTS - Usando la estructura refactorizada
+import 'package:amsp/presentation/screens/home/home_screen.dart';
+import 'package:amsp/presentation/screens/auth/login_screen.dart';
+import 'package:amsp/presentation/screens/auth/phone_number_screen.dart';
+import 'package:amsp/presentation/screens/alerts/risk_zones_screen.dart';
+import 'package:amsp/map/services/location_service.dart';
 
 const Color kPrimaryColor = Color(0xFF248448);
 const Color kSecondaryColor = Color(0xFFFF6C00);
@@ -40,7 +43,9 @@ class _AppInitWrapperState extends State<AppInitWrapper> {
 
   Future<void> _initializeApp() async {
     try {
-      await Firebase.initializeApp();
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
       FirebaseDatabase.instance.setPersistenceEnabled(false);
       await dotenv.load(fileName: ".env");
 
@@ -85,7 +90,6 @@ class _AppInitWrapperState extends State<AppInitWrapper> {
             ),
           );
         }
-        // Mientras carga la inicialización, mostrar indicador
         return const MaterialApp(
           home: Scaffold(
             body: Center(child: CircularProgressIndicator()),
@@ -124,7 +128,7 @@ class MainApp extends StatelessWidget {
             textStyle: const TextStyle(fontSize: 14),
           ),
         ),
-        bottomAppBarTheme: const BottomAppBarTheme(color: kPrimaryColor),
+        bottomAppBarTheme: const BottomAppBarThemeData(color: kPrimaryColor),
         textTheme: const TextTheme(bodyMedium: TextStyle(color: Colors.black)),
       ),
       home: const AuthWrapper(),
@@ -139,9 +143,9 @@ class AuthWrapper extends StatelessWidget {
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      return const InicioSesion();
+      return  LoginScreen(); // ✅ Actualizado: LoginScreen
     }
-    return HomePage(circleId: null);
+    return HomeScreen(circleId: null);
   }
 }
 
